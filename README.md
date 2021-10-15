@@ -76,8 +76,9 @@ In this example, the code is stored in `src/bad_example.py`. If you run
 1. The template follows the instructions of the 
 [PyPa packaging tutorial](https://packaging.python.org/tutorials/packaging-projects/). 
 So, it should look familiar to most people. Using the template is easy. Just click the 
-green "Use this template" button above to create your own repository with all the files 
-automatically copied from this template.
+green "Use this template" button above (you need to be signed into GitHub) to create 
+your own repository with all the files automatically copied from this template. 
+Alternatively, you may just download / clone a copy of the files.
 2. Provide some information about your project in setup.cfg. You can find details about 
 the fields in the
 [PyPa packaging tutorial](https://packaging.python.org/tutorials/packaging-projects/#configuring-metadata).
