@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ style_dir }}\pico.min.css">
+    <title>Report: {{ appname.replace("_", " ").title() }}, Version: {{ version }}</title>
+  </head>
+  <body>
+    <main class="container">
+        <hgroup>
+            <h1 id="top">{{ appname.replace("_", " ").title() }} </h1> 
+            <h2>Version: {{ version }}<br/>Generated on: {{ timestamp.isoformat(sep=" ", timespec="seconds") }}</h2>
+        </hgroup>
+        <nav>
+            <ul>
+                {%- for heading in report %}
+                    <li><a href="#{{ heading.replace(' ', '') }}">{{ heading }} ({{ summary[heading]["value"] }}{{ summary[heading]["unit"] }})</a></li>
+                {%- endfor %}
+            </ul>
+        </nav>
+
+    
+        {% for heading, section in report.items() %}
+            <article>
+                <header>
+                    <nav>
+                        <hgroup>
+                            <h2 id="{{ heading.replace(' ', '') }}">{{ heading }}</h2>
+                            <h3>{{ summary[heading]["name"] }}: {{ summary[heading]["value"] }}{{ summary[heading]["unit"] }}</h3>
+                        </hgroup>
+                        <ul>
+                                <li><a href="#top">Up</a></li>
+                        </ul>
+                    </nav>
+
+                </header>
+                {%- for subsection in section %}                    
+                    {%- if subsection.heading %}
+                        {%- if subsection.type == "list" and subsection.count <= 0 %}
+                            <hgroup>
+                                <h5>{{ subsection.heading }}</h5>                            
+                                <h6>No Issues.</h6>
+                            </hgroup>
+                        {%- else %}
+                            <h5>{{ subsection.heading }}</h5>
+                        {%- endif %}
+                    {%- endif %}
+
+                    {%- if subsection.type == "list" %}
+                        {%- for issue in subsection %}
+                            <details>
+                                <summary>{{ issue["summary"] | safe}}</summary>
+                                <p>{{ issue["details"] | safe}}</p>
+                            </details>
+                        {% endfor %}
+                    {% endif %}
+
+                    {%- if subsection.type == "table" %}
+                        <table>
+                            <thead>
+                                <tr>
+                                {%- for heading in subsection.headings %}
+                                    <th scope="col">{{ heading }}</th>
+                                {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {%- for row in subsection %}
+                                    <tr>
+                                    {%- for column in row.values() %}
+                                        <td>{{ column | safe }}</td>
+                                    {%- endfor %}
+                                    </tr>
+                                {%- endfor %}
+                            </tbody>
+                        </table>
+                    {%- endif %}
+                {%- endfor %}
+            </article>            
+        {%- endfor %}
+    </main>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ style_dir }}\pico.min.css">
+    <title>{{ file.heading }}</title>
+  </head>
+  <body>
+    <main class="container">
+        <h1>File Contents</h1>
+        <article>
+            <header>
+            <h1>{{ file.heading }} </h1> 
+            {%- if file.colorname %}
+                <div class="grid">
+                    {%- if file.colorname["good"] %}
+                        <div style="margin: auto;"><div style="text-align: center; background-color: #43a04750; width: 8em; padding: 0.5em">{{ file.colorname["good"] }}</div></div>
+                    {%- endif %}
+                    {%- if file.colorname["bad"] %}
+                        <div style="margin: auto;"><div style="text-align: center; background-color: #e5393550; width: 8em; padding: 0.5em">{{ file.colorname["bad"] }}</div></div>
+                    {%- endif %}
+                    {%- if file.colorname["neutral"] %}
+                        <div style="margin: auto;"><div style="text-align: center; background-color: #546e7a50; width: 8em; padding: 0.5em">{{ file.colorname["neutral"] }}</div></div>
+                    {%- endif %}
+                </div>
+            {%- endif %}
+            </header>
+            <table>
+                <tbody>
+                    {%- for line in file.lines %}
+                        {%- if loop.index >= file.range[0] and loop.index <= file.range[1] %}
+                            <tr>
+                                <td scope="row"><i>{{ loop.index }}</i></th>
+                                {%- if line["color"] == "good" %}
+                                    <td style="white-space: pre; background-color:#43a04750">{{ line["content"] }}</td>
+                                {%- elif line["color"] == "bad"%}
+                                    <td style="white-space: pre; background-color:#e5393550">{{ line["content"] }}</td>
+                                {%- elif line["color"] == "neutral"%}
+                                    <td style="white-space: pre; background-color:#546e7a50">{{ line["content"] }}</td>
+                                {%- else %}
+                                    <td style="white-space: pre;">{{ line["content"] }}</td>
+                                {%- endif %}
+                            </tr>    
+                        {%- endif %}
+                    {%- endfor %}                
+                </tbody>
+            </table>
+        </article>
+    </main>
+  </body>
+</html>
