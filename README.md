@@ -40,12 +40,37 @@ evaluating test coverage with [Coverage.py](https://github.com/nedbat/coveragepy
 - Generating documentation with [Sphinx](https://www.sphinx-doc.org/en/master/) and 
 markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 - Checking for undocumented code (built into `package.py`).
-- Generating a single, beautiful report for all of the above.
+- Generating a single, beautiful report for all of the above with [Pico.css](https://picocss.com/).
 - Building wheel files and incrementing the version number according to 
 [calendar versioning](https://calver.org/).
 - Generating badges with the most important metrics for your repository like the ones 
 shown above.
 - Removing temporary files and folders.
+
+## Example Report
+The `package.py` tool that comes with the template can generate a single, 
+beautiful report that summarizes the results of the above-mentioned tools. Want an example?
+Have a look at the following, problematic code:
+
+```python
+import hashlib
+import subprocess
+
+from flask import Flask
+
+def getHash(password: str):
+    """
+    This is an example function for encrypting passwords.
+
+    Args:
+        pw: The password to be encrypted.
+    """
+    return hashlib.md5(password.encode("utf-8"))
+```
+
+In this example, the code is stored in `src/bad_example.py`. If you run 
+`python package.py build` you will get the report. 
+[Have a look!](https://woernerm.github.io/luxury_python_template/)
 
 ## Quick Guide
 1. The template follows the instructions of the 
