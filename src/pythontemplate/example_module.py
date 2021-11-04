@@ -5,7 +5,7 @@ For actual projects you may delete this module or rename it to write your own co
 """
 
 
-def example_function(myinput) -> int:
+def example_function(myinput: int) -> int:
     """
     Returns the given parameter without change.
 

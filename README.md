@@ -32,6 +32,7 @@ This includes:
 - Installing all needed dependencies.
 - Sorting import statements alphabetically with [isort](https://pycqa.github.io/isort/).
 - Styling your code [Black](https://github.com/psf/black).
+- Static type analysis with [MyPy](https://github.com/python/mypy).
 - Checking for residual style errors with [Flake8](https://github.com/PyCQA/flake8).
 - Checking for security issues with [Bandit](https://github.com/PyCQA/bandit).
 - Checking for known vulnerabilities in dependencies with [Safety](https://github.com/pyupio/safety).

@@ -30,7 +30,7 @@
                 <tbody>
                     {%- for line in file.lines %}
                         {%- if loop.index >= file.range[0] and loop.index <= file.range[1] %}
-                            <tr>
+                            <tr id="{{ loop.index }}"">
                                 <td scope="row"><i>{{ loop.index }}</i></th>
                                 {%- if line["color"] == "good" %}
                                     <td style="white-space: pre; background-color:#43a04750">{{ line["content"] }}</td>

@@ -38,14 +38,11 @@ import re
 import runpy
 import shutil
 import sys
-import typing
+from typing import Union, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
-
-import dateutil
-import jinja2
-import pybadges
-from dateutil import tz
+import contextlib
+import io
 
 
 class Settings:
@@ -133,6 +130,9 @@ class Settings:
     # Folder into which json for analyzing dependencies are placed.
     TMP_DIR = BASE_DIR / "tmp"
 
+    # Folder in which mypy stores its cache.
+    MYPY_CACHE = BASE_DIR / ".mypy_cache"
+
     # Temporary directory for build files.
     BUILD_DIR = BASE_DIR / "build"
 
@@ -157,6 +157,9 @@ class Settings:
 
     # The file in which style violations are documented.
     STYLE_REPORT_JSON = TMP_DIR / "style.json"
+
+    # THe file in which type errors are documented.
+    TYPE_REPORT_XML = TMP_DIR / "type.xml"
 
     # File for storing warnings about undefined or undocumented Python code.
     DOCUMENTATION_COVERAGE_FILE = TMP_DIR / "doccoverage.json"
@@ -196,7 +199,7 @@ class Settings:
     SECURITY_ISSUES_THRESHOLDS = {0: "brightgreen"}
 
 
-def require(requirements: typing.List[tuple], install: bool = False):
+def require(requirements: List[Tuple[str, Optional[str]]], install: bool = False):
     """
     Installs the given module, if it is not available.
 
@@ -231,39 +234,39 @@ def require(requirements: typing.List[tuple], install: bool = False):
     return notinstalled
 
 
-def remove_if_exists(path: str):
+def remove_if_exists(path: Union[Path, str]):
     """
     Deletes a given file or folder, if it exists.
 
     Args:
         path: The path to the file or folder to delete.
     """
-    if os.path.isfile(path):
-        os.remove(path)
-    if os.path.isdir(path):
-        shutil.rmtree(path)
+    if os.path.isfile(str(path)):
+        os.remove(str(path))
+    if os.path.isdir(str(path)):
+        shutil.rmtree(str(path))
 
 
-def remove_if_empty(path: str):
+def remove_if_empty(path: Union[Path,str]):
     """
     Deletes a given folder, if it is empty.
 
     Args:
         path: The path to the folder that shall be deleted, if it is empty.
     """
-    if os.path.isdir(path) and len(os.listdir(path)) == 0:
-        shutil.rmtree(path)
+    if os.path.isdir(str(path)) and len(os.listdir(str(path))) == 0:
+        shutil.rmtree(str(path))
 
 
-def mkdirs_if_not_exists(path: str):
+def mkdirs_if_not_exists(path: Union[str, Path]):
     """
     Creates the given folder path, if it does not exist already.
 
     Args:
         path: The folder path that shall be created.
     """
-    if not os.path.isdir(path):
-        os.makedirs(path)
+    if not os.path.isdir(str(path)):
+        os.makedirs(str(path))
 
 
 def runner(cmd: list):
@@ -278,14 +281,16 @@ def runner(cmd: list):
     # Create the list of arguments to provide to the executed module. For this, obtain
     # the file path for the module and set it as first argument, then copy the remaining
     # arguments as they are to the argument list.
-    path = Path(pkgutil.get_loader(cmd[0]).path)
+    path = Path(pkgutil.get_loader(cmd[0]).path) # type: ignore
     apppath = path.parents[0] / "__main__.py" if path.name == "__init__.py" else path
     arguments = list([str(apppath)])
     arguments += cmd[1:]
 
     # Provide arguments to the module and run the module.
     sys.argv = arguments
-    runpy.run_module(cmd[0], run_name="__main__")
+    # Run module and silence error messages as well as findings.
+    with contextlib.redirect_stderr(io.StringIO()):
+        runpy.run_module(cmd[0], run_name="__main__")
 
 
 def pyexecute(cmd: list):
@@ -354,7 +359,7 @@ class Report:
             self.heading = name
             self.type = "list"
             self.entries = []
-            self.summary = None
+            self.summary = None # type: ignore
 
         def add(self, summary, details) -> None:
             """
@@ -411,9 +416,9 @@ class Report:
             self.columns = columns
             self.type = "table"
             self.entries = []
-            self.summary = None
+            self.summary = None # type: ignore
 
-        def add(self, *columndata: list) -> None:
+        def add(self, *columndata: str) -> None:
             """
             Adds a row to the list.
 
@@ -493,7 +498,7 @@ class Report:
                 filepath: Path to the file that shall be shown.
             """
             self.type = "file"
-            self.summary = None
+            self.summary = None # type: ignore
             self.filepath = filepath
             self.outputpath = ""
             self.colorname = {}
@@ -501,9 +506,8 @@ class Report:
             self.range = None
 
             with open(filepath, "r") as f:
-                lines = f.readlines()
                 self.lines = [
-                    {self.CONTENT: line, self.COLOR: self.COLOR_NONE} for line in lines
+                    {self.CONTENT: line, self.COLOR: self.COLOR_NONE} for line in f if line
                 ]
                 if not self.lines:
                     self.lines = [{self.CONTENT: "", self.COLOR: self.COLOR_NONE}]
@@ -548,7 +552,7 @@ class Report:
                 raise ValueError("Invalid marking type.")
             self.colorname[marking] = label
 
-        def mark(self, lines: typing.Union[list, int], marking):
+        def mark(self, lines: Union[list, int], marking):
             """
             Highlights the given lines with the given color category.
 
@@ -623,12 +627,14 @@ class Report:
             appname: The name of the application / python package.
             version: The version of the application / python package.
         """
+        import jinja2
+        import dateutil.tz
         self._sections = {}
         self._files = {}
         self._appname = appname
         self._version = version
         self._settings = settings
-        self._timestamp = datetime.now(tz.gettz())
+        self._timestamp = datetime.now(dateutil.tz.gettz())
         self._environment = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(self._settings.REPORT_TEMPLATE_DIR)),
             autoescape=True,
@@ -655,7 +661,7 @@ class Report:
 
         styledir = self._settings.REPORT_FILES_DIR.absolute()
 
-        filelist = [self._settings.REPORT_HTML]
+        filelist = [str(self._settings.REPORT_HTML.absolute())]
         # Write main report file.
         with open(self._settings.REPORT_HTML, "wb") as f:
             output = self._maintemplate.render(
@@ -670,7 +676,7 @@ class Report:
 
         # Write files containing code snippets.
         for file in self._files.values():
-            filename = outputdir / Path(file.outputpath)
+            filename = (outputdir / Path(file.outputpath)).absolute()
             filedir = filename.parent
             filelist.append(str(filename.absolute()))
             with open(filename, "wb") as f:
@@ -682,6 +688,7 @@ class Report:
                     style_dir=os.path.relpath(styledir, filedir.absolute()),
                 )
                 f.write(output.encode("utf-8"))
+                f.close()
 
         # Remove report files that are not needed anymore.
         # Although one could just remove the entire report folder, it is easier to
@@ -690,10 +697,10 @@ class Report:
         # Deleting the folder is not allowed when the report has been opened in a
         # browser, because the file is then denoted as "in use by another process".
         for existing in glob.glob(str(self._settings.REPORT_FILES_DIR / "*.html")):
-            if existing not in filelist:
+            if str(Path(existing).absolute()) not in filelist:
                 remove_if_exists(existing)
 
-    def add(self, section: str, data: list):
+    def add(self, section: str, data: Union[File, Table, List]):
         """
         Adds a section with the given name to the report.
 
@@ -792,7 +799,7 @@ class Meta:
     automatic configuration.
     """
 
-    def __init__(self, configfile: str):
+    def __init__(self, configfile: Union[Path, str]):
         """
         Initializes the build with the package name from config file.
 
@@ -800,7 +807,7 @@ class Meta:
             configfile: The name of the config file to pull the package
                 name from.
         """
-        self.configfile = configfile
+        self.configfile = str(configfile)
 
     def get(self, keyword: str):
         """
@@ -833,7 +840,8 @@ class Meta:
         Returns:
             String with copyright notice.
         """
-        date = datetime.now(tz.UTC)
+        import dateutil.tz
+        date = datetime.now(dateutil.tz.UTC)
         return str(date.year) + ", " + self.get("author")
 
 
@@ -889,7 +897,7 @@ class Badge:
             Color string for the badge packages the matches the given value.
         """
         applicable = [k for k in thresholddict.keys() if value >= k]
-        return thresholddict[max(applicable)] if applicable else "red"
+        return str(thresholddict[max(applicable)]) if applicable else "red"
 
     def _getThresholdColorLTE(self, thresholddict: dict, value: float) -> str:
         """
@@ -908,7 +916,7 @@ class Badge:
             Color string for the badge packages the matches the given value.
         """
         applicable = [k for k in thresholddict.keys() if value <= k]
-        return thresholddict[min(applicable)] if applicable else "red"
+        return str(thresholddict[min(applicable)]) if applicable else "red"
 
     def coverage_badge(self, title: str, value: float, thresholds: dict):
         """
@@ -919,6 +927,7 @@ class Badge:
             value: The coverage value in percent.
             thresholds: The threshold dictionary to use for assigning colors.
         """
+        import pybadges
         coverage = math.floor(value)
         color = self._getThresholdColorGTE(thresholds, coverage)
         data = pybadges.badge(
@@ -926,7 +935,7 @@ class Badge:
         )
         self._write(title.replace(" ", "_"), data)
 
-    def issue_badge(self, title: str, value: int, thresholds: dict):
+    def issue_badge(self, title: str, value: Optional[int], thresholds: dict):
         """
         Generates a badge for the number of issues found.
 
@@ -935,16 +944,17 @@ class Badge:
             value: The number of issues found.
             thresholds: The threshold dictionary to use for assigning colors.
         """
-        nissues = value
+        import pybadges
+        nissues = str(value)
         color = "red"
 
-        if nissues is not None:
-            color = self._getThresholdColorLTE(thresholds, nissues)
+        if value is not None:
+            color = self._getThresholdColorLTE(thresholds, value)
         else:
             nissues = "Unknown"
+
         data = pybadges.badge(
-            left_text=title, right_text=f"{nissues}", right_color=color
-        )
+            left_text=title, right_text=f"{nissues}", right_color=color)
         self._write(title.replace(" ", "_"), data)
 
     def passfail_badge(self, name: str, passing: bool):
@@ -958,6 +968,7 @@ class Badge:
             name: The name displayed on the badge.
             passing: True, if the badge shall indicate passage. False, otherwise.
         """
+        import pybadges
         text = "passing" if passing else "failing"
         color = "brightgreen" if passing else "red"
         data = pybadges.badge(left_text=name, right_text=text, right_color=color)
@@ -1026,7 +1037,7 @@ class CalVersion:
         This is done for cases in which there is no correct old version
         available to increment.
         """
-        dateutil.tz = importlib.import_module("dateutil.tz")
+        import dateutil
         date = datetime.now(dateutil.tz.UTC)
         self.version = self.__versionstr(date.year, date.month, 0)
 
@@ -1041,7 +1052,7 @@ class CalVersion:
             oldversion: The old version as a list of strings. One
                 element for each part of the version.
         """
-        dateutil.tz = importlib.import_module("dateutil.tz")
+        import dateutil
         date = datetime.now(dateutil.tz.UTC)
         oldmonth = int(oldversion[self.VER_MONTH])
         oldpatch = int(oldversion[self.VER_PATCH])
@@ -1070,7 +1081,7 @@ class CalVersion:
             f.write(buf)
 
     def __str__(self) -> str:
-        return self.version
+        return str(self.version)
 
 
 class Documentation:
@@ -1091,7 +1102,7 @@ class Documentation:
             settings: Settings instance to get settings from.
         """
         self._settings = settings
-        self._passed = None
+        self._passed = False
 
     def remove(self) -> None:
         """
@@ -1188,7 +1199,7 @@ class StyleCheck:
             settings: Settings instance to get settings from.
         """
         self._settings = settings
-        self._passed = None
+        self._passed = False
 
     def remove(self) -> None:
         """
@@ -1262,7 +1273,7 @@ class StyleCheck:
         with open(self.flakefile, "r") as f:
             data = json.load(f)
             for filename, issues in data.items():
-                name = Path(filename).relative_to(Path().cwd())
+                name = Path(filename).absolute().relative_to(Path().cwd())
                 List = Report.List(str(name))
                 for issue in issues:
                     file = report.File(filename)
@@ -1286,7 +1297,7 @@ class StyleCheck:
                         + str(issue[self.KEY_COLUMN])
                         + "<br />"
                         + "<b>File</b>: "
-                        + f"<a href={file.outputpath}>"
+                        + f"<a href=\"{file.outputpath}#{issue[self.KEY_LINE]}\">"
                         + str(name)
                         + "</a>"
                     )
@@ -1294,6 +1305,140 @@ class StyleCheck:
                     List.add(summary, details)
 
                 report.add(self._settings.REPORT_SECTION_NAME_STYLE, List)
+
+class TypeCheck:
+    """
+    Class for static type analysis.
+
+    The class uses mypy (https://github.com/python/mypy).
+    """
+
+    REGEX_MSG = re.compile(r"([^:]+)[ ]*:[ ]*(\d+)[ ]*:[ ]*([^:]+)[ ]*:[ ]*([^\n]+?)\[([^\]]+)\][ ]*(\n|$)")
+    GROUP_FILENAME = 1
+    GROUP_LINE = 2
+    GROUP_TYPE = 3
+    GROUP_MSG = 4
+    GROUP_CODE = 5
+
+    def __init__(self, settings: Settings) -> None:
+        """
+        Initializes the class with settings.
+
+        Args:
+            settings: Settings instance to get settings from.
+        """
+        self._settings = settings
+        self._passed = False
+
+    def remove(self) -> None:
+        """
+        Removes the old issue report.
+        """
+        self.clean()
+        remove_if_exists(self._settings.REPORT_HTML)
+        remove_if_empty(self._settings.REPORT_DIR)
+
+    def clean(self) -> None:
+        """
+        Removes intermediate artifacts.
+        """
+        remove_if_exists(self._settings.TYPE_REPORT_XML)
+        remove_if_exists(self._settings.MYPY_CACHE)
+        remove_if_empty(self._settings.TMP_DIR)
+        remove_if_empty(self._settings.REPORT_DIR)
+
+    def ispassed(self) -> bool:
+        """
+        Returns, whether the last run() call was successful and did not return issues.
+
+        Returns:
+            True, if the last call of run() was successful. False, otherwise.
+        """
+        return self._passed
+
+    def run(self) -> bool:
+        """
+        Performs static type analysis using mypy.
+
+        Returns:
+            True, if no type errors were found.
+            False, otherwise.
+        """
+        self.clean()
+
+        mkdirs_if_not_exists(self._settings.REPORT_DIR)
+        
+        self._passed = not bool(
+            pyexecute(
+                [
+                    "mypy",
+                    "--install-types",
+                    "--show-error-codes",
+                    "--non-interactive",
+                    "--show-absolute-path",
+                    "--warn-unreachable",
+                    "--warn-return-any",
+                    "--warn-redundant-casts",
+                    "--no-implicit-optional",
+                    "--follow-imports=silent",
+                    "--ignore-missing-imports",
+                    "--disable-error-code", "attr-defined",
+                    "--disable-error-code", "var-annotated", 
+                    "--disable-error-code", "union-attr", 
+                    "--junit-xml",
+                    str(self._settings.TYPE_REPORT_XML),
+                    "--cache-dir",
+                    str(self._settings.MYPY_CACHE),
+                    str(self._settings.SRC_DIR),
+                ]
+            )
+        )
+        return self._passed
+
+    def report(self, report: Report):
+        """
+        Exports the results to the given report.
+
+        Args:
+            report: The report to export the results to.
+        """
+        import defusedxml.ElementTree as et
+        tree = et.parse(self._settings.TYPE_REPORT_XML)
+        failurenode = tree.getroot().find(".//failure")
+        messages = str(failurenode.text) if failurenode is not None else ""
+        sections = {}
+        files = {}
+        lines = {}
+        
+        # Parse all messages
+        for match in self.REGEX_MSG.finditer(messages):
+            filename = match.group(self.GROUP_FILENAME).strip()
+            filename = str(Path(filename).absolute().relative_to(Path().cwd()))
+            line = int(match.group(self.GROUP_LINE).strip())
+            msgtype = match.group(self.GROUP_TYPE).strip().capitalize()
+            msg = match.group(self.GROUP_MSG).strip()
+            code = match.group(self.GROUP_CODE).strip()
+
+            if filename not in sections:
+                file = report.File(filename)
+                files[filename] = file
+                lines[filename] = [] 
+                report.add(str(Path(filename).absolute()), file)
+                sections[filename] = Report.List(filename)
+            
+            files[filename].mark(line, file.COLOR_BAD)
+            files[filename].set_mark_name(file.COLOR_BAD, "Finding")
+            lines[filename].append(line)
+            summary = f"<b>{code}</b>: {msg}"
+            details = f"<b>Line</b>: {line}<br />" + f"<b>Type</b>: {msgtype} <br />" + f"<b>Code</b>: {code} <br />" + f"<b>File</b>: <a href=\"{files[filename].outputpath}#{line}\">{filename}</a>"
+            sections[filename].add(summary, details)
+        
+        for filename, section in sections.items():
+            files[filename].range = (min(lines[filename]) - self._settings.REPORT_LINE_RANGE, max(lines[filename]) + self._settings.REPORT_LINE_RANGE)
+            report.add("Types", section) 
+
+        if not sections:
+            report.add("Types", Report.List())
 
 
 class SecurityCheck:
@@ -1329,7 +1474,7 @@ class SecurityCheck:
         self._settings = settings
         self.safetyfilenames = {}
         self.banditfilename = ""
-        self._passed = None
+        self._passed = False
 
     def remove(self) -> None:
         """
@@ -1527,7 +1672,7 @@ class SecurityCheck:
 
             for entry in data[self.KEY_BANDIT_RESULTS]:
                 filename = str(entry[self.KEY_BANDIT_FILENAME])
-                relfilename = str(Path(filename).relative_to(Path().cwd()))
+                relfilename = str(Path(filename).absolute().relative_to(Path().cwd()))
                 file = report.File(relfilename)
                 minline = min(entry[self.KEY_BANDIT_LINES])
                 maxline = max(entry[self.KEY_BANDIT_LINES])
@@ -1556,7 +1701,7 @@ class SecurityCheck:
                     + str(entry[self.KEY_BANDIT_CONFIDENCE])
                     + "<br />"
                     + "<b>File</b>: "
-                    + f"<a href={file.outputpath}>"
+                    + f"<a href=\"{file.outputpath}#{minline}\">"
                     + relfilename
                     + "</a>"
                     + "<br />"
@@ -1601,7 +1746,7 @@ class Test:
             settings: Settings instance to get settings from.
         """
         self._settings = settings
-        self._passed = None
+        self._passed = False
 
     def remove(self) -> None:
         """
@@ -1637,7 +1782,9 @@ class Test:
 
         self.coveragefile = str(self._settings.TEST_COVERAGE_JSON)
         mkdirs_if_not_exists(self._settings.TMP_DIR)
-        srcdir = self._settings.SRC_DIR.relative_to(Path().cwd())
+        cwd = Path().cwd()        
+        srcdir_abs = self._settings.SRC_DIR.absolute()
+        srcdir = srcdir_abs.relative_to(cwd)
 
         self._passed = not bool(
             pyexecute(
@@ -1682,17 +1829,17 @@ class Test:
                 nexcluded = content[self.KEY_SUMMARY][self.KEY_NUM_EXCLUDED]
                 coverage = str(content[self.KEY_SUMMARY][self.KEY_COVERAGE]) + "\u202F%"
                 table.add(
-                    f"<a href={file.outputpath}>{filename}</a>",
+                    f"<a href=\"{file.outputpath}\">{filename}</a>",
                     nstatements,
                     nmissing,
                     nexcluded,
                     coverage,
                 )
-                table.summary = (
+                table.summary = ( # type: ignore
                     "Coverage",
                     math.floor(data[self.KEY_TOTALS][self.KEY_COVERAGE]),
                     "%",
-                )
+                ) 
             report.add(self._settings.REPORT_SECTION_NAME_TEST, table)
 
 
@@ -1715,7 +1862,7 @@ class Build:
         """
 
         self._settings = settings
-        self._passed = None
+        self._passed = False
 
         with open(self._settings.CONFIGFILE, "r") as f:
             buf = str(f.read())
@@ -1751,7 +1898,7 @@ class Build:
 
         remove_if_exists(self._settings.BUILD_DIR)
 
-    def ispassed(self) -> None:
+    def ispassed(self) -> bool:
         """
         Returns, whether the last run() call was successful and did not return issues.
 
@@ -1761,7 +1908,7 @@ class Build:
         """
         return self._passed
 
-    def run(self) -> None:
+    def run(self) -> bool:
         """
         Create a new source and binary (wheel) distribution.
 
@@ -1826,14 +1973,13 @@ class DocInspector:
             settings: Instance of a settings class to get settings from.
         """
         self._settings = settings
-        self.documented = list()
         self.undocumented = list()
         self.missing = list()
         self.log = list()
         self.documented = {}  # Number of documented elements in each file.
         self.files = set()
 
-    def _getcleandoc(self, doc: str):
+    def _getcleandoc(self, doc: List[str]):
         """
         Applies Python's strip() function to each documentation line.
 
@@ -1857,7 +2003,7 @@ class DocInspector:
             type: The type of object as given by sphinx.
         """
         if not callable(subject):
-            return None
+            raise TypeError("Given subject is not callable.")
 
         signature = list(inspect.signature(subject).parameters.keys())
 
@@ -1919,7 +2065,7 @@ class DocInspector:
             self.log = data[self.SECTION_ISSUES]
 
     def _getParameter(
-        self, subject: object, lines: list, type: str, check: int
+        self, subject: object, lines: list, type: str, check: str
     ) -> list:
         """
         Returns a list of parameters that match a given check.
@@ -1994,7 +2140,7 @@ class DocInspector:
         if what not in ["method", "function"]:
             return None
 
-        source = inspect.getsource(subject).strip()
+        source = inspect.getsource(subject).strip() # type: ignore
 
         # Find returns that are not None.
         # First, remove docstrings, comments and strings.
@@ -2140,7 +2286,7 @@ class DocInspector:
         """
         self.save()
 
-    def get_coverage(self, file: str = None) -> float:
+    def get_coverage(self, file: Optional[str] = None) -> float:
         """
         Returns the documentation coverage in percent.
 
@@ -2181,15 +2327,17 @@ class DocInspector:
 
         for entry in self.log:
             filename = entry[self.KEY_FILE]
-            relfilename = Path(filename).relative_to(Path().cwd())
+            relfilename = Path(filename).absolute().relative_to(Path().cwd())
+            minline = min(entry[self.KEY_LINES])
+            maxline = max(entry[self.KEY_LINES])
             file = report.File(filename)
             file.mark(min(entry[self.KEY_LINES]), file.COLOR_BAD)
             file.set_mark_name(file.COLOR_BAD, "Finding")
             file.range = (
-                min(entry[self.KEY_LINES]) - self._settings.REPORT_LINE_RANGE,
-                min(entry[self.KEY_LINES]) + self._settings.REPORT_LINE_RANGE,
+                minline - self._settings.REPORT_LINE_RANGE,
+                maxline + self._settings.REPORT_LINE_RANGE,
             )
-            report.add(relfilename, file)
+            report.add(str(relfilename), file)
 
             summary = (
                 "<b>"
@@ -2202,7 +2350,7 @@ class DocInspector:
                 + entry[self.KEY_OBJNAME]
                 + "<br />"
                 + "<b>File</b>: "
-                + f"<a href={file.outputpath}>"
+                + f"<a href=\"{file.outputpath}#{minline}\">"
                 + str(relfilename)
                 + "</a>"
                 + "<br />"
@@ -2212,7 +2360,7 @@ class DocInspector:
                 + entry[self.KEY_TEXT]
             )
             issues.add(summary, detail)
-        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%")
+        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%") # type: ignore
         report.add(self._settings.REPORT_SECTION_NAME_DOCUMENTATION, issues)
 
 
@@ -2241,6 +2389,8 @@ class Manager:
         ("bandit", None),
         ("coverage", None),
         ("build", None),
+        ("mypy", None),
+        ("defusedxml", None),
     ]
 
     def __init__(self, settings: Settings) -> None:
@@ -2251,20 +2401,7 @@ class Manager:
             settings: The settings instance to use.
         """
         self._settings = settings
-        self._meta = Meta(settings.CONFIGFILE)
-        self._badge = Badge(settings)
-        self._report = Report(
-            self._settings, self._meta.get("name"), self._meta.get("version")
-        )
-
-        self._style = StyleCheck(self._settings)
-        self._security = SecurityCheck(self._settings)
-        self._test = Test(self._settings)
-        self._doc = Documentation(self._settings)
-        self._docinspector = DocInspector(self._settings)
-        self._build = Build(self._settings)
-        self._version = CalVersion(self._settings)
-
+        
         self.parser = argparse.ArgumentParser(
             description= 
             "This tool wraps some of the best open-source tools available for "
@@ -2305,6 +2442,22 @@ class Manager:
             raise Exception(f"Command {args.cmd} does not exist.")
 
         self._setup(args.yes)
+
+        self._meta = Meta(settings.CONFIGFILE)
+        self._badge = Badge(settings)
+        self._report = Report(
+            self._settings, self._meta.get("name"), self._meta.get("version")
+        )
+
+        self._style = StyleCheck(self._settings)
+        self._type = TypeCheck(self._settings)
+        self._security = SecurityCheck(self._settings)
+        self._test = Test(self._settings)
+        self._doc = Documentation(self._settings)
+        self._docinspector = DocInspector(self._settings)
+        self._build = Build(self._settings)
+        self._version = CalVersion(self._settings)
+
         getattr(self, args.cmd)(args.quiet)
 
     def _setup(self, yesmode: bool):
@@ -2367,6 +2520,9 @@ class Manager:
             print("Styling code...")
         styleresult = self._style.run()
         if not quiet:
+            print("Checking types...")
+        typeresult = self._type.run()
+        if not quiet:
             print("Running tests...")
         testresult = self._test.run()
         if not quiet:
@@ -2378,6 +2534,7 @@ class Manager:
         self._docinspector.report(self._report)
         self._security.report(self._report)
         self._style.report(self._report)
+        self._type.report(self._report)
 
         self._report.render()
 
@@ -2386,8 +2543,9 @@ class Manager:
         self._style.clean()
         self._doc.clean()
         self._report.clean()
+        self._type.clean()
 
-        return secresult and styleresult and testresult and docresult
+        return secresult and styleresult and testresult and docresult and typeresult
 
     def build(self, quiet: bool) -> None:
         """
@@ -2403,7 +2561,7 @@ class Manager:
         """
         print(f"Setting version to {self._version}.")
         configregex = r"(version[ ]*=)[ ]*[^\n]*"
-        self._version.bump(self._settings.CONFIGFILE, configregex)
+        self._version.bump(str(self._settings.CONFIGFILE), configregex)
 
         self.remove(quiet)
         self.report(quiet)
@@ -2476,6 +2634,7 @@ class Manager:
         self._test.remove()
         self._doc.remove()
         self._security.remove()
+        self._type.remove()
 
     def _clean(self, quiet: bool) -> None:
         """
@@ -2489,6 +2648,7 @@ class Manager:
         self._test.clean()
         self._doc.clean()
         self._security.clean()
+        self._type.clean()
 
 
 if __name__ == "__main__":
