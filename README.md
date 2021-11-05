@@ -100,8 +100,8 @@ code by running:
 ```Shell
 python package.py build
 ```
-
-If you only want the detailed report, just run:
+The build command is also the only one that will update the badges. If you only want the
+detailed report, just run:
 
 ```Shell
 python package.py report
@@ -118,6 +118,17 @@ If you want to remove the wheel files, documentation, and report:
 ```Shell
 python package.py remove
 ```
+
+## Frequently Asked Questions
+If you run the build or report command, you may get the following error:
+```
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
+```
+This is because checking for dependency vulnerabilities using 
+[Safety](https://github.com/pyupio/safety) requires a connection to a database. If you
+are getting this error, it means that the database is not reachable. This may happen
+either because your internet connection encountered some issues, or the database is
+currently unavailable for whatever reason.
 
 ## License
 The package is distributed under Apache License 2.0. You can use it for anything you 
