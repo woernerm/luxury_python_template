@@ -290,7 +290,10 @@ def runner(cmd: list):
     sys.argv = arguments
     # Run module and silence error messages as well as findings.
     with contextlib.redirect_stderr(io.StringIO()):
-        runpy.run_module(cmd[0], run_name="__main__")
+        try:
+            runpy.run_module(cmd[0], run_name="__main__")
+        except Exception as e:
+            print(f"Running command {' '.join(cmd)} failed:\n{str(e)}")
 
 
 def pyexecute(cmd: list):
@@ -1637,6 +1640,12 @@ class SecurityCheck:
         """
         # Generate dependency report.
         for name, filename in self.safetyfilenames.items():
+            if not os.path.isfile(str(filename)):
+                List = Report.List(name)
+                List.add(f"Analysis failed.", "")
+                report.add("Dependencies", List)
+                continue
+
             with open(filename, "r") as f:
                 List = Report.List(name)
                 try:
@@ -1661,6 +1670,13 @@ class SecurityCheck:
                     report.add("Dependencies", List)
                 except json.decoder.JSONDecodeError:
                     pass
+
+        # Check whether report fole exists.
+        if not os.path.isfile(str(self.banditfilename)):
+                List = Report.List()
+                List.add(f"Analysis failed.", "")
+                report.add(self._settings.REPORT_SECTION_NAME_SECURITY, List)
+                return
 
         # Generate security report.
         with open(self.banditfilename, "r") as f:
