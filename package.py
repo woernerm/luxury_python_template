@@ -43,6 +43,7 @@ from datetime import datetime
 from pathlib import Path
 import contextlib
 import io
+import platform
 
 
 class Settings:
@@ -288,8 +289,11 @@ def runner(cmd: list):
 
     # Provide arguments to the module and run the module.
     sys.argv = arguments
-    # Run module and silence error messages as well as findings.
-    with contextlib.redirect_stderr(io.StringIO()):
+
+    # Run module and silence error messages as well as findings except for pip.
+    out_err = sys.stderr if cmd[0] == "pip" else io.StringIO()
+
+    with contextlib.redirect_stderr(out_err):
         try:
             runpy.run_module(cmd[0], run_name="__main__")
         except Exception as e:
@@ -2489,7 +2493,19 @@ class Manager:
             yesmode: Set to True if the user shall not be asked whether to install any
                 missing dependencies.
         """
-        notinstalled = require(self.REQUIREMENTS, False)
+        requirements = self.REQUIREMENTS
+
+        # Sometimes, there can be issues with missing certificates when using the 
+        # safety package on Windows systems. This can be solved by installing
+        # python-certify-win32. However, this package may sometimes also fail to install
+        # if there is no matching version available. Therefore, only try to install 
+        # it once if safety is also not yet installed. If it fails, do not try to
+        # install it again to avoid repetitive questions although everything is
+        # working. 
+        if platform.system() == "Windows" and require([("safety", None)], False):
+            requirements += [("python-certify-win32", None)]
+
+        notinstalled = require(requirements, False)
 
         if not notinstalled:
             return
