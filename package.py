@@ -2199,13 +2199,15 @@ class DocInspector:
 
         try:
             file = inspect.getsourcefile(obj)
+            with open(file) as f: content = f.read().strip()
         except Exception:
             # Only evaluate objects for which a file can be determined.
             # For example, properties are not supported in Python 3.9.1.
             return
 
-        # Check presence of description.
-        if self._getDescription(lines) is None:
+        # Check presence of description. If the file is empty, no issue is created,
+        # because one does not need to document nothingness.
+        if content and self._getDescription(lines) is None:
             self.add_issue(
                 obj,
                 what,
@@ -2270,9 +2272,11 @@ class DocInspector:
             issuetype: The type of issue found regarding the given object.
             text: Description of the issue.
         """
-        lines = inspect.getsourcelines(obj)
-        start = 1 if lines[1] == 0 else lines[1]
-        end = lines[1] + len(lines[0])
+        start = end = 1
+        if what != 'module':
+            lines = inspect.getsourcelines(obj)
+            start = 1 if lines[1] == 0 else lines[1]
+            end = lines[1] + len(lines[0])
 
         self.log += [
             {
