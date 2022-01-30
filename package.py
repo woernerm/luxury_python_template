@@ -1847,7 +1847,7 @@ class Test:
                 nstatements = content[self.KEY_SUMMARY][self.KEY_NUM_STATEMENTS]
                 nmissing = content[self.KEY_SUMMARY][self.KEY_NUM_MISSING]
                 nexcluded = content[self.KEY_SUMMARY][self.KEY_NUM_EXCLUDED]
-                coverage = str(content[self.KEY_SUMMARY][self.KEY_COVERAGE]) + "\u202F%"
+                coverage = str(round(content[self.KEY_SUMMARY][self.KEY_COVERAGE], 2)) + "\u202F%"
                 table.add(
                     f"<a href=\"{file.outputpath}\">{filename}</a>",
                     nstatements,
