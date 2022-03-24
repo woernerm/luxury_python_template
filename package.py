@@ -26,24 +26,25 @@ you can just hit tab for autocompletion after the first "p" of "package.py". Mak
 faster typing. ;)
 """
 import argparse
+import contextlib
 import glob
 import importlib
 import inspect
+import io
 import json
 import math
 import multiprocessing
 import os
 import pkgutil
+import platform
 import re
 import runpy
 import shutil
 import sys
-from typing import Union, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
-import contextlib
-import io
-import platform
+from typing import List, Optional, Tuple, Union
+from urllib.parse import quote
 
 
 class Settings:
@@ -58,6 +59,9 @@ class Settings:
 
     # Directory where the package source code can be found.
     SRC_DIR = BASE_DIR / "src"
+
+    # Patterns to omit for coverage.
+    COVERAGE_OMIT_PATTERN = "*/test*"
 
     # Directory for placing all reports.
     REPORT_DIR = BASE_DIR / "report"
@@ -200,7 +204,10 @@ class Settings:
     SECURITY_ISSUES_THRESHOLDS = {0: "brightgreen"}
 
 
-def require(requirements: List[Tuple[str, Optional[str]]], install: bool = False):
+def require(
+    requirements: List[Tuple[str, Optional[str], Optional[List[str]]]],
+    install: bool = False,
+):
     """
     Installs the given module, if it is not available.
 
@@ -219,14 +226,15 @@ def require(requirements: List[Tuple[str, Optional[str]]], install: bool = False
 
     notinstalled = []
     for requirement in requirements:
-        modulename = requirement[0]
-        packagename = modulename if requirement[1] is None else requirement[1]
+        modulename, packagename, options = requirement
+        packagename = modulename if packagename is None else packagename
+        options = [] if options is None else options
 
         try:
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
-                pyexecute(["pip", "install", packagename])
+                pyexecute(["pip", "install"] + options + [packagename])
                 # Make sure that the running script finds the new module.
                 importlib.invalidate_caches()
             else:
@@ -248,7 +256,7 @@ def remove_if_exists(path: Union[Path, str]):
         shutil.rmtree(str(path))
 
 
-def remove_if_empty(path: Union[Path,str]):
+def remove_if_empty(path: Union[Path, str]):
     """
     Deletes a given folder, if it is empty.
 
@@ -282,7 +290,7 @@ def runner(cmd: list):
     # Create the list of arguments to provide to the executed module. For this, obtain
     # the file path for the module and set it as first argument, then copy the remaining
     # arguments as they are to the argument list.
-    path = Path(pkgutil.get_loader(cmd[0]).path) # type: ignore
+    path = Path(pkgutil.get_loader(cmd[0]).path)  # type: ignore
     apppath = path.parents[0] / "__main__.py" if path.name == "__init__.py" else path
     arguments = list([str(apppath)])
     arguments += cmd[1:]
@@ -366,7 +374,7 @@ class Report:
             self.heading = name
             self.type = "list"
             self.entries = []
-            self.summary = None # type: ignore
+            self.summary = None  # type: ignore
 
         def add(self, summary, details) -> None:
             """
@@ -423,7 +431,7 @@ class Report:
             self.columns = columns
             self.type = "table"
             self.entries = []
-            self.summary = None # type: ignore
+            self.summary = None  # type: ignore
 
         def add(self, *columndata: str) -> None:
             """
@@ -505,7 +513,7 @@ class Report:
                 filepath: Path to the file that shall be shown.
             """
             self.type = "file"
-            self.summary = None # type: ignore
+            self.summary = None  # type: ignore
             self.filepath = filepath
             self.outputpath = ""
             self.colorname = {}
@@ -514,7 +522,9 @@ class Report:
 
             with open(filepath, "r") as f:
                 self.lines = [
-                    {self.CONTENT: line, self.COLOR: self.COLOR_NONE} for line in f if line
+                    {self.CONTENT: line, self.COLOR: self.COLOR_NONE}
+                    for line in f
+                    if line
                 ]
                 if not self.lines:
                     self.lines = [{self.CONTENT: "", self.COLOR: self.COLOR_NONE}]
@@ -634,8 +644,9 @@ class Report:
             appname: The name of the application / python package.
             version: The version of the application / python package.
         """
-        import jinja2
         import dateutil.tz
+        import jinja2
+
         self._sections = {}
         self._files = {}
         self._appname = appname
@@ -648,7 +659,6 @@ class Report:
         )
         self._maintemplate = self._environment.get_template("main.jinja")
         self._filetemplate = self._environment.get_template("file.jinja")
-        
 
     def render(self):
         """
@@ -657,7 +667,7 @@ class Report:
         The HTML files will be stored in the directory given by REPORT_FILES_DIR.
         """
         outputdir = Path(self._settings.REPORT_HTML).parent
-        
+
         # Create output directories.
         mkdirs_if_not_exists(outputdir)
         mkdirs_if_not_exists(self._settings.REPORT_FILES_DIR)
@@ -848,8 +858,80 @@ class Meta:
             String with copyright notice.
         """
         import dateutil.tz
+
         date = datetime.now(dateutil.tz.UTC)
         return str(date.year) + ", " + self.get("author")
+
+
+class AbsBadge:
+    """
+    Class for generating badges that can be displayed on PyPi
+
+    As of 2022-03-20, PyPi does not allow relative images paths. Therefore, the images
+    need to be hosted somewhere else and included in the readme as an absolute
+    http://... link. The badges on PyPi should only show the state of the most recent
+    release available on PyPi. Therefore, one cannot use a link to the current version
+    on github, because the state might be different. Likewise, at the state of building
+    the commit hash is not known. Therefore, the images need to be available somewhere
+    else. This is done by using the simple https://shields.io/ api.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        """
+        Initialize the class with settings.
+
+        Args:
+            settings: The settings instance to use.
+            badge: Instance of a badge class.
+        """
+        self._settings = settings
+        meta = Meta(settings.CONFIGFILE)
+        self._readmefilename = meta.get("long_description").split(":")[1].strip()
+        self._rel_abs_map = dict()
+        with open(self._readmefilename, "r") as file:
+            self._readme = file.read()
+
+    def replace_badge(self, badgefile: str, title: str, text: str, color: str) -> None:
+        """
+        Replaces a reference to badgefile with shields.io link.
+
+        Args:
+            badgefile: The local file of the badge.
+            title: The title of the badge to display.
+            value: The value of the badge to display.
+        """
+
+        link_stem = f"https://img.shields.io/static/v1?label={quote(title)}&message="
+        link = link_stem + f"{quote(text)}&color={quote(color)}"
+        # Replace address, if shields.io badge is used.
+        link_regex = r"\([ ]*" + re.escape(link_stem) + r"[^\)]*?[ ]*\)"
+        badgefile_left = badgefile.replace("/", "\\")
+        badgefile_right = badgefile.replace("\\", "/")
+        self._rel_abs_map[badgefile_right] = link_regex
+
+        if badgefile_right in self._readme or badgefile_left in self._readme:
+            # Replace static badge file independent of slash direction.
+            self._readme = self._readme.replace(badgefile_left, link)
+            self._readme = self._readme.replace(badgefile_right, link)
+        else:
+            self._readme = re.sub(link_regex, f"({link})", self._readme)
+
+    def write_absolute_readme(self):
+        """
+        Replaces the readme file with a version that uses shields.io badges.
+        """
+        with open(self._readmefilename, "w") as file:
+            file.write(self._readme)
+
+    def write_relative_readme(self):
+        """
+        Replaces the readme file with a version that uses local badge files.
+        """
+        for badgefile, link_regex in self._rel_abs_map.items():
+            self._readme = re.sub(link_regex, f"({badgefile})", self._readme)
+
+        with open(self._readmefilename, "w") as file:
+            file.write(self._readme)
 
 
 class Badge:
@@ -871,8 +953,20 @@ class Badge:
             settings: The settings instance to use.
         """
         self._settings = settings
+        self._absbadge = AbsBadge(settings)
 
-    def _write(self, badgename: str, data: str):
+    def get_badgefile(self, badgename: str) -> str:
+        """
+        Returns the filename to the badge with the given name.
+
+        Returns:
+            File path to the badge's svg file.
+        """
+        filename = badgename.replace(" ", "_")
+        badgefolder = os.path.normpath(self._settings.BADGE_FOLDER)
+        return f"{badgefolder}\\{filename}.svg"
+
+    def _write(self, badgefile: str, data: str):
         """
         Write the given SVG data to a file in the repository as given by the settings.
 
@@ -880,8 +974,6 @@ class Badge:
             badgename: The filename of the badge.
             data: The SVG data to be written to a file in the repository.
         """
-        badgefolder = os.path.normpath(self._settings.BADGE_FOLDER)
-        badgefile = f"{badgefolder}\\{badgename}.svg"
 
         mkdirs_if_not_exists(self._settings.BADGE_FOLDER)
         with open(badgefile, "w") as f:
@@ -925,6 +1017,61 @@ class Badge:
         applicable = [k for k in thresholddict.keys() if value <= k]
         return str(thresholddict[min(applicable)]) if applicable else "red"
 
+    def get_coverage_badge_data(self, title: str, value: float, thresholds: dict):
+        """
+        Returns a tuple with details about the coverage badge to create.
+
+        Args:
+            title: The title of the badge to display.
+            value: The value that shall be displayed in percent.
+            thresholds: Dictionary with keys as thresholds and values as color
+                string for the badge package.
+
+        Returns:
+            Tuple consisting of title, message string and color of the badge.
+        """
+        coverage = math.floor(value)
+        color = self._getThresholdColorGTE(thresholds, coverage)
+        return (title, f"{coverage}%", color)
+
+    def get_issue_badge_data(self, title: str, value: Optional[int], thresholds: dict):
+        """
+        Returns a tuple with details about the issue badge to create.
+
+        Args:
+            title: The title of the badge to display.
+            value: The value that shall be displayed.
+            thresholds: Dictionary with keys as thresholds and values as color
+                string for the badge package.
+
+        Returns:
+            Tuple consisting of title, message string and color of the badge.
+        """
+        nissues = str(value)
+        color = "red"
+
+        if value is not None:
+            color = self._getThresholdColorLTE(thresholds, value)
+        else:
+            nissues = "Unknown"
+
+        return (title, str(nissues), color)
+
+    def get_passfail_badge_data(self, name: str, passing: bool):
+        """
+        Returns a tuple with details about the pass-fail badge to create.
+
+        Args:
+            title: The title of the badge to display.
+            value: The value that shall be displayed.
+
+        Returns:
+            Tuple consisting of title, message string and color of the badge.
+        """
+        text = "passing" if passing else "failing"
+        color = "brightgreen" if passing else "red"
+        return (name, text, color)
+
     def coverage_badge(self, title: str, value: float, thresholds: dict):
         """
         Generates a badge for coverage.
@@ -935,12 +1082,15 @@ class Badge:
             thresholds: The threshold dictionary to use for assigning colors.
         """
         import pybadges
-        coverage = math.floor(value)
-        color = self._getThresholdColorGTE(thresholds, coverage)
+
+        badge_data = self.get_coverage_badge_data(title, value, thresholds)
         data = pybadges.badge(
-            left_text=title, right_text=f"{coverage}%", right_color=color
+            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
         )
-        self._write(title.replace(" ", "_"), data)
+
+        badgefile = self.get_badgefile(title)
+        self._absbadge.replace_badge(badgefile, *badge_data)
+        self._write(badgefile, data)
 
     def issue_badge(self, title: str, value: Optional[int], thresholds: dict):
         """
@@ -952,17 +1102,15 @@ class Badge:
             thresholds: The threshold dictionary to use for assigning colors.
         """
         import pybadges
-        nissues = str(value)
-        color = "red"
 
-        if value is not None:
-            color = self._getThresholdColorLTE(thresholds, value)
-        else:
-            nissues = "Unknown"
+        badge_data = self.get_issue_badge_data(title, value, thresholds)
 
         data = pybadges.badge(
-            left_text=title, right_text=f"{nissues}", right_color=color)
-        self._write(title.replace(" ", "_"), data)
+            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
+        )
+        badgefile = self.get_badgefile(title)
+        self._absbadge.replace_badge(badgefile, *badge_data)
+        self._write(badgefile, data)
 
     def passfail_badge(self, name: str, passing: bool):
         """
@@ -976,10 +1124,26 @@ class Badge:
             passing: True, if the badge shall indicate passage. False, otherwise.
         """
         import pybadges
-        text = "passing" if passing else "failing"
-        color = "brightgreen" if passing else "red"
-        data = pybadges.badge(left_text=name, right_text=text, right_color=color)
-        self._write(name.replace(" ", "_"), data)
+
+        badge_data = self.get_passfail_badge_data(name, passing)
+        data = pybadges.badge(
+            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
+        )
+        badgefile = self.get_badgefile(name)
+        self._absbadge.replace_badge(badgefile, *badge_data)
+        self._write(badgefile, data)
+
+    def write_relative_readme(self):
+        """
+        Replaces the readme file with a version that uses local badge files.
+        """
+        self._absbadge.write_relative_readme()
+
+    def write_absolute_readme(self):
+        """
+        Replaces the readme file with a version that uses shields.io badges.
+        """
+        self._absbadge.write_absolute_readme()
 
 
 class CalVersion:
@@ -1045,6 +1209,7 @@ class CalVersion:
         available to increment.
         """
         import dateutil
+
         date = datetime.now(dateutil.tz.UTC)
         self.version = self.__versionstr(date.year, date.month, 0)
 
@@ -1060,6 +1225,7 @@ class CalVersion:
                 element for each part of the version.
         """
         import dateutil
+
         date = datetime.now(dateutil.tz.UTC)
         oldmonth = int(oldversion[self.VER_MONTH])
         oldpatch = int(oldversion[self.VER_PATCH])
@@ -1304,7 +1470,7 @@ class StyleCheck:
                         + str(issue[self.KEY_COLUMN])
                         + "<br />"
                         + "<b>File</b>: "
-                        + f"<a href=\"{file.outputpath}#{issue[self.KEY_LINE]}\">"
+                        + f'<a href="{file.outputpath}#{issue[self.KEY_LINE]}">'
                         + str(name)
                         + "</a>"
                     )
@@ -1313,6 +1479,7 @@ class StyleCheck:
 
                 report.add(self._settings.REPORT_SECTION_NAME_STYLE, List)
 
+
 class TypeCheck:
     """
     Class for static type analysis.
@@ -1320,7 +1487,9 @@ class TypeCheck:
     The class uses mypy (https://github.com/python/mypy).
     """
 
-    REGEX_MSG = re.compile(r"([^:]+)[ ]*:[ ]*(\d+)[ ]*:[ ]*([^:]+)[ ]*:[ ]*([^\n]+?)\[([^\]]+)\][ ]*(\n|$)")
+    REGEX_MSG = re.compile(
+        r"([^:]+)[ ]*:[ ]*(\d+)[ ]*:[ ]*([^:]+)[ ]*:[ ]*([^\n]+?)\[([^\]]+)\][ ]*(\n|$)"
+    )
     GROUP_FILENAME = 1
     GROUP_LINE = 2
     GROUP_TYPE = 3
@@ -1374,7 +1543,7 @@ class TypeCheck:
         self.clean()
 
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
-        
+
         self._passed = not bool(
             pyexecute(
                 [
@@ -1389,9 +1558,12 @@ class TypeCheck:
                     "--no-implicit-optional",
                     "--follow-imports=silent",
                     "--ignore-missing-imports",
-                    "--disable-error-code", "attr-defined",
-                    "--disable-error-code", "var-annotated", 
-                    "--disable-error-code", "union-attr", 
+                    "--disable-error-code",
+                    "attr-defined",
+                    "--disable-error-code",
+                    "var-annotated",
+                    "--disable-error-code",
+                    "union-attr",
                     "--junit-xml",
                     str(self._settings.TYPE_REPORT_XML),
                     "--cache-dir",
@@ -1410,13 +1582,14 @@ class TypeCheck:
             report: The report to export the results to.
         """
         import defusedxml.ElementTree as et
+
         tree = et.parse(self._settings.TYPE_REPORT_XML)
         failurenode = tree.getroot().find(".//failure")
         messages = str(failurenode.text) if failurenode is not None else ""
         sections = {}
         files = {}
         lines = {}
-        
+
         # Parse all messages
         for match in self.REGEX_MSG.finditer(messages):
             filename = match.group(self.GROUP_FILENAME).strip()
@@ -1429,20 +1602,28 @@ class TypeCheck:
             if filename not in sections:
                 file = report.File(filename)
                 files[filename] = file
-                lines[filename] = [] 
+                lines[filename] = []
                 report.add(str(Path(filename).absolute()), file)
                 sections[filename] = Report.List(filename)
-            
+
             files[filename].mark(line, file.COLOR_BAD)
             files[filename].set_mark_name(file.COLOR_BAD, "Finding")
             lines[filename].append(line)
             summary = f"<b>{code}</b>: {msg}"
-            details = f"<b>Line</b>: {line}<br />" + f"<b>Type</b>: {msgtype} <br />" + f"<b>Code</b>: {code} <br />" + f"<b>File</b>: <a href=\"{files[filename].outputpath}#{line}\">{filename}</a>"
+            details = (
+                f"<b>Line</b>: {line}<br />"
+                + f"<b>Type</b>: {msgtype} <br />"
+                + f"<b>Code</b>: {code} <br />"
+                + f'<b>File</b>: <a href="{files[filename].outputpath}#{line}">{filename}</a>'
+            )
             sections[filename].add(summary, details)
-        
+
         for filename, section in sections.items():
-            files[filename].range = (min(lines[filename]) - self._settings.REPORT_LINE_RANGE, max(lines[filename]) + self._settings.REPORT_LINE_RANGE)
-            report.add("Types", section) 
+            files[filename].range = (
+                min(lines[filename]) - self._settings.REPORT_LINE_RANGE,
+                max(lines[filename]) + self._settings.REPORT_LINE_RANGE,
+            )
+            report.add("Types", section)
 
         if not sections:
             report.add("Types", Report.List())
@@ -1646,7 +1827,7 @@ class SecurityCheck:
         for name, filename in self.safetyfilenames.items():
             if not os.path.isfile(str(filename)):
                 List = Report.List(name)
-                List.add(f"Analysis failed.", "")
+                List.add("Analysis failed.", "")
                 report.add("Dependencies", List)
                 continue
 
@@ -1677,10 +1858,10 @@ class SecurityCheck:
 
         # Check whether report fole exists.
         if not os.path.isfile(str(self.banditfilename)):
-                List = Report.List()
-                List.add(f"Analysis failed.", "")
-                report.add(self._settings.REPORT_SECTION_NAME_SECURITY, List)
-                return
+            List = Report.List()
+            List.add("Analysis failed.", "")
+            report.add(self._settings.REPORT_SECTION_NAME_SECURITY, List)
+            return
 
         # Generate security report.
         with open(self.banditfilename, "r") as f:
@@ -1721,7 +1902,7 @@ class SecurityCheck:
                     + str(entry[self.KEY_BANDIT_CONFIDENCE])
                     + "<br />"
                     + "<b>File</b>: "
-                    + f"<a href=\"{file.outputpath}#{minline}\">"
+                    + f'<a href="{file.outputpath}#{minline}">'
                     + relfilename
                     + "</a>"
                     + "<br />"
@@ -1802,7 +1983,7 @@ class Test:
 
         self.coveragefile = str(self._settings.TEST_COVERAGE_JSON)
         mkdirs_if_not_exists(self._settings.TMP_DIR)
-        cwd = Path().cwd()        
+        cwd = Path().cwd()
         srcdir_abs = self._settings.SRC_DIR.absolute()
         srcdir = srcdir_abs.relative_to(cwd)
 
@@ -1813,6 +1994,7 @@ class Test:
                     "run",
                     "-m",
                     f"--source={srcdir}",
+                    f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
                     "unittest",
                     "-q",
                 ]
@@ -1847,19 +2029,22 @@ class Test:
                 nstatements = content[self.KEY_SUMMARY][self.KEY_NUM_STATEMENTS]
                 nmissing = content[self.KEY_SUMMARY][self.KEY_NUM_MISSING]
                 nexcluded = content[self.KEY_SUMMARY][self.KEY_NUM_EXCLUDED]
-                coverage = str(round(content[self.KEY_SUMMARY][self.KEY_COVERAGE], 2)) + "\u202F%"
+                coverage = (
+                    str(round(content[self.KEY_SUMMARY][self.KEY_COVERAGE], 2))
+                    + "\u202F%"
+                )
                 table.add(
-                    f"<a href=\"{file.outputpath}\">{filename}</a>",
+                    f'<a href="{file.outputpath}">{filename}</a>',
                     nstatements,
                     nmissing,
                     nexcluded,
                     coverage,
                 )
-                table.summary = ( # type: ignore
+                table.summary = (  # type: ignore
                     "Coverage",
                     math.floor(data[self.KEY_TOTALS][self.KEY_COVERAGE]),
                     "%",
-                ) 
+                )
             report.add(self._settings.REPORT_SECTION_NAME_TEST, table)
 
 
@@ -2160,7 +2345,7 @@ class DocInspector:
         if what not in ["method", "function"]:
             return None
 
-        source = inspect.getsource(subject).strip() # type: ignore
+        source = inspect.getsource(subject).strip()  # type: ignore
 
         # Find returns that are not None.
         # First, remove docstrings, comments and strings.
@@ -2199,7 +2384,10 @@ class DocInspector:
 
         try:
             file = inspect.getsourcefile(obj)
-            with open(file) as f: content = f.read().strip()
+            if not file:
+                raise Exception("No source file to process.")
+            with open(file) as f:
+                content = f.read().strip()
         except Exception:
             # Only evaluate objects for which a file can be determined.
             # For example, properties are not supported in Python 3.9.1.
@@ -2273,7 +2461,7 @@ class DocInspector:
             text: Description of the issue.
         """
         start = end = 1
-        if what != 'module':
+        if what != "module":
             lines = inspect.getsourcelines(obj)
             start = 1 if lines[1] == 0 else lines[1]
             end = lines[1] + len(lines[0])
@@ -2374,7 +2562,7 @@ class DocInspector:
                 + entry[self.KEY_OBJNAME]
                 + "<br />"
                 + "<b>File</b>: "
-                + f"<a href=\"{file.outputpath}#{minline}\">"
+                + f'<a href="{file.outputpath}#{minline}">'
                 + str(relfilename)
                 + "</a>"
                 + "<br />"
@@ -2384,7 +2572,7 @@ class DocInspector:
                 + entry[self.KEY_TEXT]
             )
             issues.add(summary, detail)
-        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%") # type: ignore
+        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%")  # type: ignore
         report.add(self._settings.REPORT_SECTION_NAME_DOCUMENTATION, issues)
 
 
@@ -2399,22 +2587,22 @@ class Manager:
 
     CMD_CHOICES = ["build", "report", "doc", "remove"]
     REQUIREMENTS = [
-        ("jinja2", None),
-        ("pybadges", None),
-        ("dateutil", "python-dateutil"),
-        ("sphinx", None),
-        ("pydata_sphinx_theme", None),
-        ("myst_parser", "myst_parser[linkify]"),
-        ("black", None),
-        ("isort", None),
-        ("flake8", None),
-        ("flake8_json_reporter", "flake8-json"),
-        ("safety", None),
-        ("bandit", None),
-        ("coverage", None),
-        ("build", None),
-        ("mypy", None),
-        ("defusedxml", None),
+        ("jinja2", None, None),
+        ("pybadges", None, None),
+        ("dateutil", "python-dateutil", None),
+        ("sphinx", None, None),
+        ("pydata_sphinx_theme", None, None),
+        ("myst_parser", "myst_parser[linkify]", None),
+        ("black", None, None),
+        ("isort", None, None),
+        ("flake8", None, None),
+        ("flake8_json_reporter", "flake8-json", None),
+        ("safety", None, None),
+        ("bandit", None, None),
+        ("coverage", None, None),
+        ("build", None, None),
+        ("mypy", None, None),
+        ("defusedxml", None, None),
     ]
 
     def __init__(self, settings: Settings) -> None:
@@ -2425,10 +2613,9 @@ class Manager:
             settings: The settings instance to use.
         """
         self._settings = settings
-        
+
         self.parser = argparse.ArgumentParser(
-            description= 
-            "This tool wraps some of the best open-source tools available for "
+            description="This tool wraps some of the best open-source tools available for "
             + "improving\ncode quality. It provides simple, easy to remember commands "
             + "for running them.\n"
             + "The results are compiled into a single, beautiful report as well as "
@@ -2499,15 +2686,15 @@ class Manager:
         """
         requirements = self.REQUIREMENTS
 
-        # Sometimes, there can be issues with missing certificates when using the 
+        # Sometimes, there can be issues with missing certificates when using the
         # safety package on Windows systems. This can be solved by installing
         # python-certify-win32. However, this package may sometimes also fail to install
-        # if there is no matching version available. Therefore, only try to install 
+        # if there is no matching version available. Therefore, only try to install
         # it once if safety is also not yet installed. If it fails, do not try to
         # install it again to avoid repetitive questions although everything is
-        # working. 
-        if platform.system() == "Windows" and require([("safety", None)], False):
-            requirements += [("python-certify-win32", None)]
+        # working.
+        if platform.system() == "Windows" and require([("safety", None, None)], False):
+            requirements += [("python-certify-win32", None, None)]
 
         notinstalled = require(requirements, False)
 
@@ -2601,11 +2788,7 @@ class Manager:
 
         self.remove(quiet)
         self.report(quiet)
-        if not quiet:
-            print("Building wheels...")
-        self._build.run()
 
-        self._badge.passfail_badge("build", True)
         self._badge.coverage_badge(
             "test coverage",
             self._report.get_total(self._settings.REPORT_SECTION_NAME_TEST),
@@ -2623,7 +2806,16 @@ class Manager:
             self._settings.SECURITY_ISSUES_THRESHOLDS,
         )
         self._badge.passfail_badge("test", self._test.ispassed())
+        # For including the result in the build, assume that build was successful.
+        # Otherwise, it will not be included in a non-existing (failed) build anyway.
+        self._badge.passfail_badge("build", True)
+        self._badge.write_absolute_readme()
+
+        if not quiet:
+            print("Building wheels...")
+        self._build.run()
         self._badge.passfail_badge("build", self._build.ispassed())
+        self._badge.write_relative_readme()
 
         if not quiet:
             print("Update documentation...")
