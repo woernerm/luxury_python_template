@@ -59,7 +59,8 @@ Have a look at the following, problematic code:
 import hashlib
 import subprocess
 
-from flask import Flask
+from django.db.models import Model
+
 
 def getHash(password: str):
     """
@@ -69,6 +70,9 @@ def getHash(password: str):
         pw: The password to be encrypted.
     """
     return hashlib.md5(password.encode("utf-8"))
+
+
+print(getHash(12345))
 ```
 
 In this example, the code is stored in `src/bad_example.py`. If you run 
