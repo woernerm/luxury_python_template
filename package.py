@@ -26,7 +26,6 @@ you can just hit tab for autocompletion after the first "p" of "package.py". Mak
 faster typing. ;)
 """
 import argparse
-import contextlib
 import glob
 import importlib
 import inspect
@@ -41,6 +40,7 @@ import re
 import runpy
 import shutil
 import sys
+from contextlib import nullcontext, redirect_stderr
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -83,6 +83,9 @@ class Settings:
 
     # Name of the report section about testing.
     REPORT_SECTION_NAME_TEST = "Test"
+
+    # Name of the report section about testing.
+    REPORT_SECTION_NAME_DEPENDENCY_VERSIONS = "Supported Versions"
 
     # Name of the report section about vulnerabilities found in dependencies (safety).
     REPORT_SECTION_NAME_DEPENDENCIES = "Dependencies"
@@ -144,6 +147,12 @@ class Settings:
     # The file in which test coverage information is stored (for the coverage package).
     TEST_COVERAGE_FILE = BASE_DIR / ".coverage"
 
+    # The file in which the nox session report is stored.
+    NOX_REPORT_JSON = TMP_DIR / "supported.json"
+
+    # The file in which the nox session report is stored.
+    NOX_LOG_FILE = TMP_DIR / "nox.log"
+
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
 
@@ -168,6 +177,12 @@ class Settings:
 
     # File for storing warnings about undefined or undocumented Python code.
     DOCUMENTATION_COVERAGE_FILE = TMP_DIR / "doccoverage.json"
+
+    # The name for the nox session for testing different python versions:
+    NOX_SESSION_NAME = "python"
+
+    # The python versions to test with nox.
+    NOX_PYTHON_VERSIONS = ["3.9", "3.10"]
 
     # ******************************************************
     # *** This section specifies colors for badges files ***
@@ -234,7 +249,12 @@ def require(
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
-                pyexecute(["pip", "install"] + options + [packagename])
+                pyexecute(
+                    ["pip", "install"]
+                    + options
+                    + [packagename]
+                    + ["--disable-pip-version-check"]
+                )
                 # Make sure that the running script finds the new module.
                 importlib.invalidate_caches()
             else:
@@ -298,10 +318,10 @@ def runner(cmd: list):
     # Provide arguments to the module and run the module.
     sys.argv = arguments
 
-    # Run module and silence error messages as well as findings except for pip.
-    out_err = sys.stderr if cmd[0] == "pip" else io.StringIO()
+    # Run module and silence error messages as well as findings except for pip and nox.
+    cxt = nullcontext() if cmd[0] in ["nox", "pip"] else redirect_stderr(io.StringIO())
 
-    with contextlib.redirect_stderr(out_err):
+    with cxt:
         try:
             runpy.run_module(cmd[0], run_name="__main__")
         except Exception as e:
@@ -321,7 +341,7 @@ def pyexecute(cmd: list):
     Returns:
         The exit code of the process that ran the module.
     """
-    if type(cmd) is not list:
+    if not isinstance(cmd, list):
         raise Exception(
             "Expected type list for parameter cmd. "
             + f"Instead got {type(cmd).__name__}."
@@ -374,7 +394,7 @@ class Report:
             self.heading = name
             self.type = "list"
             self.entries = []
-            self.summary = None  # type: ignore
+            self.summary = tuple()
 
         def add(self, summary, details) -> None:
             """
@@ -431,7 +451,7 @@ class Report:
             self.columns = columns
             self.type = "table"
             self.entries = []
-            self.summary = None  # type: ignore
+            self.summary = tuple()
 
         def add(self, *columndata: str) -> None:
             """
@@ -513,12 +533,12 @@ class Report:
                 filepath: Path to the file that shall be shown.
             """
             self.type = "file"
-            self.summary = None  # type: ignore
+            self.summary = tuple()
             self.filepath = filepath
             self.outputpath = ""
             self.colorname = {}
             self.lines = []
-            self.range = None
+            self.__range = tuple()
 
             with open(filepath, "r") as f:
                 self.lines = [
@@ -528,7 +548,17 @@ class Report:
                 ]
                 if not self.lines:
                     self.lines = [{self.CONTENT: "", self.COLOR: self.COLOR_NONE}]
-                self.range = (0, len(self.lines))
+                self.__range = (0, len(self.lines))
+
+        @property
+        def range(self):
+            """Returns the range of lines to display."""
+            return self.__range
+
+        @range.setter
+        def range(self, range: Tuple):
+            """Sets the range of lines to display."""
+            self.__range = (max(0, range[0]), min(len(self.lines), range[1]))
 
         @property
         def heading(self):
@@ -588,7 +618,7 @@ class Report:
                 lines: The lines to highlight.
                 marking: The color category to mark the lines with.
             """
-            inlines = [lines] if type(lines) is int else lines
+            inlines = [lines] if isinstance(lines, int) else lines
 
             if not inlines:
                 return
@@ -630,7 +660,8 @@ class Report:
                 highlighted lines and used color categories.
             """
             filepath = str(Path(self.filepath).absolute())
-            range = f"{self.range[0]:08d}{self.range[1]:08d}" if self.range else "None"
+            range = self.__range
+            range = f"{range[0]:08d}{range[1]:08d}" if range else "None"
             color = [f"{i:08d}" + line[self.COLOR] for i, line in enumerate(self.lines)]
             color = "".join(color)
             return hash(filepath + range + color)
@@ -768,7 +799,7 @@ class Report:
         if (
             len(self._sections[section]) == 1
             and self._sections[section][0].summary
-            and type(self._sections[section][0].summary) is tuple
+            and isinstance(self._sections[section][0].summary, tuple)
         ):
             return {
                 self.SUMMARY_NAME: self._sections[section][0].summary[0],
@@ -882,7 +913,6 @@ class AbsBadge:
 
         Args:
             settings: The settings instance to use.
-            badge: Instance of a badge class.
         """
         self._settings = settings
         meta = Meta(settings.CONFIGFILE)
@@ -898,7 +928,8 @@ class AbsBadge:
         Args:
             badgefile: The local file of the badge.
             title: The title of the badge to display.
-            value: The value of the badge to display.
+            text: The message on the badge to display.
+            color: The color the badge shall have.
         """
 
         link_stem = f"https://img.shields.io/static/v1?label={quote(title)}&message="
@@ -958,6 +989,10 @@ class Badge:
     def get_badgefile(self, badgename: str) -> str:
         """
         Returns the filename to the badge with the given name.
+
+        Args:
+            badgename: The name of the badge for which the corresponding file shall
+                be returned.
 
         Returns:
             File path to the badge's svg file.
@@ -1057,20 +1092,20 @@ class Badge:
 
         return (title, str(nissues), color)
 
-    def get_passfail_badge_data(self, name: str, passing: bool):
+    def get_passfail_badge_data(self, title: str, passing: bool):
         """
         Returns a tuple with details about the pass-fail badge to create.
 
         Args:
             title: The title of the badge to display.
-            value: The value that shall be displayed.
+            passing: True, if the test has been passed. False, otherwise.
 
         Returns:
             Tuple consisting of title, message string and color of the badge.
         """
         text = "passing" if passing else "failing"
         color = "brightgreen" if passing else "red"
-        return (name, text, color)
+        return (title, text, color)
 
     def coverage_badge(self, title: str, value: float, thresholds: dict):
         """
@@ -1180,7 +1215,7 @@ class CalVersion:
         oldver = meta.get("version").split(".")
 
         if (
-            type(oldver) is not list
+            not isinstance(oldver, list)
             or not all([e.isdigit() for e in oldver])
             or len(oldver) > self.VER_PATCH + 1
             or int(oldver[self.VER_MONTH]) > 12
@@ -2010,6 +2045,12 @@ class Test:
         Args:
             report: The report to export the results to.
         """
+        if not os.path.isfile(str(self.coveragefile)):
+            List = Report.List()
+            List.add("Coverage analysis failed", "")
+            report.add(self._settings.REPORT_SECTION_NAME_TEST, List)
+            return
+
         with open(self.coveragefile, "r") as f:
             data = json.load(f)
             filelist = data[self.KEY_FILES]
@@ -2040,12 +2081,161 @@ class Test:
                     nexcluded,
                     coverage,
                 )
-                table.summary = (  # type: ignore
+                table.summary = (
                     "Coverage",
                     math.floor(data[self.KEY_TOTALS][self.KEY_COVERAGE]),
                     "%",
                 )
             report.add(self._settings.REPORT_SECTION_NAME_TEST, table)
+
+
+class SupportedVersions:
+    """
+    Class for determining the dependency versions that are supported.
+
+    The class uses nox (https://nox.thea.codes/) for the task.
+    """
+
+    REGEX_SIGNATURE = re.compile(r"^[ ]*([^\(]+)(\(([^\)]+)\))?", re.IGNORECASE)
+    GROUP_SIGNATURE_PYTHON = 1
+    GROUP_SIGNATURE_DEPENDENCIES = 3
+
+    REGEX_DEPENDENCY = re.compile(
+        r"[ ,]*([^=]+?)[ ]*=[ ]*[^\d]*([\d\.]+)[^\d\.,]*", re.IGNORECASE
+    )
+    GROUP_DEPENDENCY_NAME = 1
+    GROUP_DEPENDENCY_VERSION = 2
+
+    def __init__(self, settings: Settings) -> None:
+        """
+        Initializes the class with settings.
+
+        Args:
+            settings: Settings instance to get settings from.
+        """
+        self._settings = settings
+        self._passed = False
+
+    def remove(self) -> None:
+        """
+        Removes old reports and intermediate artifacts like coverage files.
+        """
+        pass
+
+    def clean(self) -> None:
+        """
+        Removes intermediate artifacts like coverage files.
+        """
+        remove_if_exists(self._settings.NOX_REPORT_JSON)
+
+    def ispassed(self) -> bool:
+        """
+        Returns, whether the last run() call was successful and did not return issues.
+
+        Returns:
+            True, if the last call of run() was successful and did not return issues.
+            False, otherwise.
+        """
+        return self._passed
+
+    def run(self) -> bool:
+        """
+        Runs all unit tests and generates a coverage report.
+
+        Returns:
+            True, if all tests were successful. False, otherwise.
+        """
+        self.clean()
+
+        cwd = Path().cwd()
+        current_file = Path(__file__).relative_to(cwd)
+
+        self._passed = not bool(
+            pyexecute(
+                [
+                    "nox",
+                    "--noxfile",
+                    str(current_file),
+                    "--report",
+                    str(self._settings.NOX_REPORT_JSON),
+                ]
+            )
+        )
+        return self._passed
+
+    def _get_nox_log(self):
+        with open(self._settings.NOX_LOG_FILE, "r") as f:
+            return f.read()
+
+    def _get_packages(self, signature: str) -> List:
+        parts = self.REGEX_SIGNATURE.search(signature)
+        if parts is None:
+            raise ValueError("Signature does not follow expected format.")
+        python = parts.group(self.GROUP_SIGNATURE_PYTHON)
+        packages = [python.replace("-", " ").capitalize()]
+
+        dependencies = parts.group(self.GROUP_SIGNATURE_DEPENDENCIES)
+        if not dependencies:
+            return packages
+
+        dependencies = self.REGEX_DEPENDENCY.finditer(dependencies)
+        for depmatch in dependencies:
+            depname = depmatch.group(self.GROUP_DEPENDENCY_NAME)
+            depversion = depmatch.group(self.GROUP_DEPENDENCY_VERSION)
+            packages.append(f"{depname.capitalize()} {depversion}")
+
+        return packages
+
+    def _parse_signature(self, session):
+        signatures = session.get("signatures", [])
+        packages = list()
+        for sig in signatures:
+            packages += self._get_packages(sig)
+        return list(sorted(set(packages)))
+
+    def report(self, report: Report):
+        """
+        Exports the results to the given report.
+
+        Args:
+            report: The report to export the results to.
+        """
+        if not os.path.isfile(str(self._settings.NOX_REPORT_JSON)):
+            List = Report.List()
+            List.add("Failed to test other dependency versions.", "")
+            report.add(self._settings.REPORT_SECTION_NAME_DEPENDENCY_VERSIONS, List)
+            return
+
+        with open(self._settings.NOX_REPORT_JSON, "r") as f:
+            data = json.load(f)
+            List = Report.List()
+            tested_versions = 0
+            for session in data.get("sessions", []):
+                packages = self._parse_signature(session)
+                result = session.get("result", "Unknown").capitalize()
+                name = ", ".join(packages)
+
+                description = "The nox report does not contain any result."
+                if result == "Success":
+                    description = f"All tests passed with {name}."
+                elif result == "Failed":
+                    description = f"One or more tests failed with {name}."
+                elif result == "Skipped":
+                    description = (
+                        "Nox skipped the test session. "
+                        "See command line output for details."
+                    )
+                elif result:
+                    description = (
+                        f"Nox reports: {result}. "
+                        "See command line output for details."
+                    )
+
+                List.add(f"{name}: {result}", description)
+                tested_versions += 1
+
+            List.summary = ("Tested Dependency Combinations", tested_versions, "")
+            report.add(self._settings.REPORT_SECTION_NAME_DEPENDENCY_VERSIONS, List)
 
 
 class Build:
@@ -2572,7 +2762,7 @@ class DocInspector:
                 + entry[self.KEY_TEXT]
             )
             issues.add(summary, detail)
-        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%")  # type: ignore
+        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%")
         report.add(self._settings.REPORT_SECTION_NAME_DOCUMENTATION, issues)
 
 
@@ -2603,6 +2793,7 @@ class Manager:
         ("build", None, None),
         ("mypy", None, None),
         ("defusedxml", None, None),
+        ("nox", None, None),
     ]
 
     def __init__(self, settings: Settings) -> None:
@@ -2664,6 +2855,7 @@ class Manager:
         self._type = TypeCheck(self._settings)
         self._security = SecurityCheck(self._settings)
         self._test = Test(self._settings)
+        self._supported = SupportedVersions(self._settings)
         self._doc = Documentation(self._settings)
         self._docinspector = DocInspector(self._settings)
         self._build = Build(self._settings)
@@ -2694,9 +2886,15 @@ class Manager:
         # install it again to avoid repetitive questions although everything is
         # working.
         if platform.system() == "Windows" and require([("safety", None, None)], False):
-            requirements += [("python-certify-win32", None, None)]
+            requirements += [
+                (
+                    "python-certify-win32",
+                    None,
+                    None,
+                )
+            ]
 
-        notinstalled = require(requirements, False)
+        notinstalled = require(requirements, False) # type: ignore
 
         if not notinstalled:
             return
@@ -2749,10 +2947,14 @@ class Manager:
             print("Running tests...")
         testresult = self._test.run()
         if not quiet:
+            print("Running tests with other python and dependency versions...")
+        supported = self._supported.run()
+        if not quiet:
             print("Generating documentation...")
         docresult = self._doc.run()
 
         self._docinspector.load()
+        self._supported.report(self._report)
         self._test.report(self._report)
         self._docinspector.report(self._report)
         self._security.report(self._report)
@@ -2768,7 +2970,14 @@ class Manager:
         self._report.clean()
         self._type.clean()
 
-        return secresult and styleresult and testresult and docresult and typeresult
+        return (
+            secresult
+            and styleresult
+            and testresult
+            and docresult
+            and typeresult
+            and supported
+        )
 
     def build(self, quiet: bool) -> None:
         """
@@ -2882,3 +3091,26 @@ class Manager:
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
     Manager(Settings())
+
+try:
+    import nox
+
+    @nox.session(name=Settings.NOX_SESSION_NAME, python=Settings.NOX_PYTHON_VERSIONS)
+    @nox.parametrize("python-dateutil", ["2.8", "2.7"])
+    def tests(session, **kwargs):
+        """Run unit tests with various dependency version combinations."""
+
+        for dependency, version in kwargs.items():
+            session.install(f"{dependency}=={version}")
+
+        def ign_func(dir, content):
+            return [c for c in content if c[0] == "." or c == "__pycache__"]
+
+        cwd = Path(session.create_tmp())
+        shutil.copytree(session.invoked_from, cwd, ignore=ign_func, dirs_exist_ok=True)
+
+        with session.chdir(cwd):
+            session.run("python", "-m", "unittest", "-q")
+
+except ModuleNotFoundError:
+    pass
