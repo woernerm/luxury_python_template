@@ -26,6 +26,8 @@ you can just hit tab for autocompletion after the first "p" of "package.py". Mak
 faster typing. ;)
 """
 import argparse
+from distutils.command.clean import clean
+from distutils.dir_util import remove_tree
 import glob
 import importlib
 import inspect
@@ -40,7 +42,7 @@ import re
 import runpy
 import shutil
 import sys
-from contextlib import nullcontext, redirect_stderr
+from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -85,7 +87,7 @@ class Settings:
     REPORT_SECTION_NAME_TEST = "Test"
 
     # Name of the report section about testing.
-    REPORT_SECTION_NAME_DEPENDENCY_VERSIONS = "Supported Versions"
+    REPORT_SECTION_NAME_DEPENDENCY_VERSIONS = "Versions"
 
     # Name of the report section about vulnerabilities found in dependencies (safety).
     REPORT_SECTION_NAME_DEPENDENCIES = "Dependencies"
@@ -152,6 +154,9 @@ class Settings:
 
     # The file in which the nox session report is stored.
     NOX_LOG_FILE = TMP_DIR / "nox.log"
+
+    # The folder nox places the test environments in.
+    NOX_ENVIRONMENT_DIR = BASE_DIR / ".nox"
 
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
@@ -270,10 +275,16 @@ def remove_if_exists(path: Union[Path, str]):
     Args:
         path: The path to the file or folder to delete.
     """
-    if os.path.isfile(str(path)):
-        os.remove(str(path))
-    if os.path.isdir(str(path)):
-        shutil.rmtree(str(path))
+    try:
+        if os.path.isfile(str(path)):
+            os.remove(str(path))
+        if os.path.isdir(str(path)):
+            shutil.rmtree(str(path))
+    except PermissionError as e:
+        path = Path(path).absolute()
+        if os.path.isdir(str(path)):
+            exit(f"Error while trying to delete folder \"{path}\":\n" + str(e))
+        exit(f"Error while trying to delete file \"{path}\":\n" + str(e))
 
 
 def remove_if_empty(path: Union[Path, str]):
@@ -319,7 +330,10 @@ def runner(cmd: list):
     sys.argv = arguments
 
     # Run module and silence error messages as well as findings except for pip and nox.
-    cxt = nullcontext() if cmd[0] in ["nox", "pip"] else redirect_stderr(io.StringIO())
+    cxt = nullcontext() if cmd[0] in ["nox", "pip"] else redirect_stdout(io.StringIO())
+    # Silence error messages for tools that output findings on stderr although they
+    # are part of normal operation. 
+    cxt = redirect_stderr(io.StringIO()) if cmd[0] in ["mypy"] else cxt
 
     with cxt:
         try:
@@ -2127,6 +2141,7 @@ class SupportedVersions:
         Removes intermediate artifacts like coverage files.
         """
         remove_if_exists(self._settings.NOX_REPORT_JSON)
+        remove_if_exists(self._settings.NOX_ENVIRONMENT_DIR)
 
     def ispassed(self) -> bool:
         """
@@ -2147,8 +2162,8 @@ class SupportedVersions:
         """
         self.clean()
 
-        cwd = Path().cwd()
-        current_file = Path(__file__).relative_to(cwd)
+        cwd = Path().cwd().absolute()
+        current_file = Path(__file__).absolute().relative_to(cwd)
 
         self._passed = not bool(
             pyexecute(
@@ -2835,6 +2850,13 @@ class Manager:
         )
 
         self.parser.add_argument(
+            "-k",
+            "--keep",
+            action="store_true",
+            help="Do not remove temporary files.",
+        )
+
+        self.parser.add_argument(
             "-q", "--quiet", action="store_true", help="minimal output."
         )
 
@@ -2861,7 +2883,7 @@ class Manager:
         self._build = Build(self._settings)
         self._version = CalVersion(self._settings)
 
-        getattr(self, args.cmd)(args.quiet)
+        getattr(self, args.cmd)(args.quiet, args.keep)
 
     def _setup(self, yesmode: bool):
         """
@@ -2918,7 +2940,7 @@ class Manager:
             else:
                 print("Invalid input. You need to answer with yes or no.\n")
 
-    def report(self, quiet: bool):
+    def report(self, quiet: bool, keep:bool):
         """
         Exports the results to the given report.
 
@@ -2963,12 +2985,13 @@ class Manager:
 
         self._report.render()
 
-        self._test.clean()
-        self._security.clean()
-        self._style.clean()
-        self._doc.clean()
-        self._report.clean()
-        self._type.clean()
+        if not keep:
+            self._test.clean()
+            self._security.clean()
+            self._style.clean()
+            self._doc.clean()
+            self._report.clean()
+            self._type.clean()
 
         return (
             secresult
@@ -2979,7 +3002,7 @@ class Manager:
             and supported
         )
 
-    def build(self, quiet: bool) -> None:
+    def build(self, quiet: bool, keep:bool) -> None:
         """
         Performs an automated build of the package.
 
@@ -3029,9 +3052,10 @@ class Manager:
         if not quiet:
             print("Update documentation...")
         self._doc.run()  # Generate documentation again to include recent badges.
-        self._clean(quiet)
 
-    def doc(self, quiet: bool) -> None:
+        self._clean(quiet, keep)
+
+    def doc(self, quiet: bool, keep:bool) -> None:
         """
         Performs automatic documentation generation.
 
@@ -3045,9 +3069,11 @@ class Manager:
         if not quiet:
             print("Generating documentation...")
         self._doc.run()
-        self._doc.clean()
+        
+        if not keep:
+            self._doc.clean()
 
-    def remove(self, quiet: bool) -> None:
+    def remove(self, quiet: bool, keep:bool) -> None:
         """
         Removes all files that have been generated for maximum cleanliness of the
         repository. Everything removed can be generated using the manager commands. For
@@ -3059,6 +3085,10 @@ class Manager:
         Args:
             quiet: Set to True for minimal output.
         """
+        if keep:
+            exit("Error: Keep option does not make sense when executing "
+                "remove command.")
+
         if not quiet:
             print("Removing build artifacts...")
         self._build.remove()
@@ -3072,20 +3102,25 @@ class Manager:
         self._doc.remove()
         self._security.remove()
         self._type.remove()
+        self._supported.remove()
+        self._clean(quiet, False)
 
-    def _clean(self, quiet: bool) -> None:
+    def _clean(self, quiet: bool, keep:bool) -> None:
         """
         Remove all intermediate artifacts that might exist in the package.
         """
         if not quiet:
             print("Removing temporary files...")
-        self._report.clean()
-        self._build.clean()
-        self._style.clean()
-        self._test.clean()
-        self._doc.clean()
-        self._security.clean()
-        self._type.clean()
+
+        if not keep:
+            self._report.clean()
+            self._build.clean()
+            self._style.clean()
+            self._test.clean()
+            self._doc.clean()
+            self._security.clean()
+            self._type.clean()
+            self._supported.clean()
 
 
 if __name__ == "__main__":
