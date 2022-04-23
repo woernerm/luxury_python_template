@@ -69,7 +69,8 @@ def getHash(password: str):
     Args:
         pw: The password to be encrypted.
     """
-    return hashlib.md5(password.encode("utf-8"))
+
+    return hashlib.md5(str(password).encode("utf-8"))
 
 
 print(getHash(12345))
