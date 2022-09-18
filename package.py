@@ -297,6 +297,15 @@ def remove_if_empty(path: Union[Path, str]):
     if os.path.isdir(str(path)) and len(os.listdir(str(path))) == 0:
         shutil.rmtree(str(path))
 
+def file_has_content(path: Union[Path, str]):
+    if not os.path.isfile(str(path)):
+        return False # File does not exist.
+    size = 0
+    with open(path, "r") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+    return size > 0 # Has the file any content?
+
 
 def mkdirs_if_not_exists(path: Union[str, Path]):
     """
@@ -363,7 +372,7 @@ def pyexecute(cmd: list):
 
     p = multiprocessing.Process(
         target=runner,
-        args=(cmd,),
+        args=(cmd,)
     )
     p.start()
     p.join()
@@ -1492,41 +1501,49 @@ class StyleCheck:
         Args:
             report: The report to export the results to.
         """
+        if not file_has_content(self.flakefile):
+            report.add(self._settings.REPORT_SECTION_NAME_STYLE, Report.List())
+            return # Nothing to report.
+
+        data = dict()
         with open(self.flakefile, "r") as f:
-            data = json.load(f)
-            for filename, issues in data.items():
-                name = Path(filename).absolute().relative_to(Path().cwd())
-                List = Report.List(str(name))
-                for issue in issues:
-                    file = report.File(filename)
-                    file.mark([issue[self.KEY_LINE]], file.COLOR_BAD)
-                    file.set_mark_name(file.COLOR_BAD, "Finding")
-                    file.range = (
-                        issue[self.KEY_LINE] - self._settings.REPORT_LINE_RANGE,
-                        issue[self.KEY_LINE] + self._settings.REPORT_LINE_RANGE,
-                    )
-                    report.add(filename, file)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                entries =  Report.List()
+                entries.add("Could not decode flake8 json file.", "")
+                report.add(self._settings.REPORT_SECTION_NAME_STYLE, entries)
 
-                    summary = issue[self.KEY_DESCRIPTION]
-                    details = (
-                        "<b>Code</b>: "
-                        + str(issue[self.KEY_CODE])
-                        + "<br />"
-                        + "<b>Line</b>: "
-                        + str(issue[self.KEY_LINE])
-                        + "<br />"
-                        + "<b>Column</b>: "
-                        + str(issue[self.KEY_COLUMN])
-                        + "<br />"
-                        + "<b>File</b>: "
-                        + f'<a href="{file.outputpath}#{issue[self.KEY_LINE]}">'
-                        + str(name)
-                        + "</a>"
-                    )
-
-                    List.add(summary, details)
-
-                report.add(self._settings.REPORT_SECTION_NAME_STYLE, List)
+        for filename, issues in data.items():
+            name = Path(filename).absolute().relative_to(Path().cwd())
+            List = Report.List(str(name))
+            for issue in issues:
+                file = report.File(filename)
+                file.mark([issue[self.KEY_LINE]], file.COLOR_BAD)
+                file.set_mark_name(file.COLOR_BAD, "Finding")
+                file.range = (
+                    issue[self.KEY_LINE] - self._settings.REPORT_LINE_RANGE,
+                    issue[self.KEY_LINE] + self._settings.REPORT_LINE_RANGE,
+                )
+                report.add(filename, file)
+                summary = issue[self.KEY_DESCRIPTION]
+                details = (
+                    "<b>Code</b>: "
+                    + str(issue[self.KEY_CODE])
+                    + "<br />"
+                    + "<b>Line</b>: "
+                    + str(issue[self.KEY_LINE])
+                    + "<br />"
+                    + "<b>Column</b>: "
+                    + str(issue[self.KEY_COLUMN])
+                    + "<br />"
+                    + "<b>File</b>: "
+                    + f'<a href="{file.outputpath}#{issue[self.KEY_LINE]}">'
+                    + str(name)
+                    + "</a>"
+                )
+                List.add(summary, details)
+            report.add(self._settings.REPORT_SECTION_NAME_STYLE, List)
 
 
 class TypeCheck:
@@ -1695,11 +1712,12 @@ class SecurityCheck:
     KEY_BANDIT_TESTID = "test_id"
     KEY_BANDIT_INFO = "more_info"
     KEY_BANDIT_LINES = "line_range"
-    KEY_SAFETY_ID = 4
-    KEY_SAFETY_NAME = 0
-    KEY_SAFETY_AFFECTED = 1
-    KEY_SAFETY_INSTALLED = 2
-    KEY_SAFETY_DETAILS = 3
+    KEY_SAFETY_ID = "vulnerability_id"
+    KEY_SAFETY_NAME = "package_name"
+    KEY_SAFETY_SPEC = "vulnerable_spec"
+    KEY_SAFETY_VULNERABILITIES = "vulnerabilities"
+    KEY_SAFETY_INSTALLED = "analyzed_version"
+    KEY_SAFETY_DETAILS = "advisory"
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1760,9 +1778,9 @@ class SecurityCheck:
                     [
                         "safety",
                         "check",
-                        "--full-report",
-                        "--json",
                         "--output",
+                        "json",
+                        "--save-json",
                         activefile,
                     ]
                 )
@@ -1778,9 +1796,9 @@ class SecurityCheck:
                         "check",
                         "--file",
                         str(self._settings.CONFIGFILE),
-                        "--full-report",
-                        "--json",
                         "--output",
+                        "json",
+                        "--save-json",
                         setupfile,
                     ]
                 )
@@ -1879,26 +1897,27 @@ class SecurityCheck:
                 List.add("Analysis failed.", "")
                 report.add("Dependencies", List)
                 continue
-
+            
             with open(filename, "r") as f:
                 List = Report.List(name)
                 try:
                     data = json.load(f)
-                    for d in data:
+                    vulnerabilities = data[self.KEY_SAFETY_VULNERABILITIES]
+                    for v in vulnerabilities:
                         summary = (
                             "<b>"
-                            + d[self.KEY_SAFETY_NAME]
+                            + v[self.KEY_SAFETY_NAME]
                             + "</b> "
-                            + d[self.KEY_SAFETY_AFFECTED]
+                            + v[self.KEY_SAFETY_SPEC]
                         )
                         details = (
                             "<b>ID</b>: "
-                            + d[self.KEY_SAFETY_ID]
+                            + v[self.KEY_SAFETY_ID]
                             + "<br />"
                             + "<b>Installed</b>: "
-                            + d[self.KEY_SAFETY_INSTALLED]
+                            + v[self.KEY_SAFETY_INSTALLED]
                             + "<br />"
-                            + d[self.KEY_SAFETY_DETAILS]
+                            + v[self.KEY_SAFETY_DETAILS]
                         )
                         List.add(summary, details)
                     report.add("Dependencies", List)
@@ -1913,6 +1932,7 @@ class SecurityCheck:
             return
 
         # Generate security report.
+        print("Generating security report")
         with open(self.banditfilename, "r") as f:
             data = json.load(f)
             security = Report.List()
@@ -1933,6 +1953,7 @@ class SecurityCheck:
                     maxline + self._settings.REPORT_LINE_RANGE,
                 )
                 report.add(filename, file)
+                print("result entry: ", entry)
 
                 summary = (
                     "<b>"
@@ -2059,7 +2080,8 @@ class Test:
         Args:
             report: The report to export the results to.
         """
-        if not os.path.isfile(str(self.coveragefile)):
+        if not file_has_content(self.coveragefile):
+            print(self.coveragefile, "has not content")
             List = Report.List()
             List.add("Coverage analysis failed", "")
             report.add(self._settings.REPORT_SECTION_NAME_TEST, List)
@@ -2215,7 +2237,7 @@ class SupportedVersions:
         Args:
             report: The report to export the results to.
         """
-        if not os.path.isfile(str(self._settings.NOX_REPORT_JSON)):
+        if not file_has_content(str(self._settings.NOX_REPORT_JSON)):
             List = Report.List()
             List.add("Failed to test other dependency versions.", "")
             report.add(self._settings.REPORT_SECTION_NAME_DEPENDENCY_VERSIONS, List)
@@ -2940,12 +2962,13 @@ class Manager:
             else:
                 print("Invalid input. You need to answer with yes or no.\n")
 
-    def report(self, quiet: bool, keep:bool):
+    def report(self, quiet: bool, keep:bool = False):
         """
         Exports the results to the given report.
 
         Args:
             quiet: Set to True for minimal output.
+            keep: Keep temporary files (True) or remove them (False).
 
         Returns:
             True, if all tool runs were successful and did not find any issues.
@@ -3002,7 +3025,7 @@ class Manager:
             and supported
         )
 
-    def build(self, quiet: bool, keep:bool) -> None:
+    def build(self, quiet: bool, keep:bool = False) -> None:
         """
         Performs an automated build of the package.
 
@@ -3013,13 +3036,14 @@ class Manager:
 
         Args:
             quiet: Set to True for minimal output.
+            keep: Keep temporary files (True) or remove them (False).
         """
         print(f"Setting version to {self._version}.")
         configregex = r"(version[ ]*=)[ ]*[^\n]*"
         self._version.bump(str(self._settings.CONFIGFILE), configregex)
 
         self.remove(quiet)
-        self.report(quiet)
+        self.report(quiet, keep)
 
         self._badge.coverage_badge(
             "test coverage",
@@ -3055,7 +3079,7 @@ class Manager:
 
         self._clean(quiet, keep)
 
-    def doc(self, quiet: bool, keep:bool) -> None:
+    def doc(self, quiet: bool, keep:bool = False) -> None:
         """
         Performs automatic documentation generation.
 
@@ -3064,6 +3088,7 @@ class Manager:
 
         Args:
             quiet: Set to True for minimal output.
+            keep: Keep temporary files (True) or remove them (False).
         """
         # First run is only for determining documentation coverage.
         if not quiet:
@@ -3073,7 +3098,7 @@ class Manager:
         if not keep:
             self._doc.clean()
 
-    def remove(self, quiet: bool, keep:bool) -> None:
+    def remove(self, quiet: bool, keep:bool = False) -> None:
         """
         Removes all files that have been generated for maximum cleanliness of the
         repository. Everything removed can be generated using the manager commands. For
@@ -3084,6 +3109,7 @@ class Manager:
 
         Args:
             quiet: Set to True for minimal output.
+            keep: Keep temporary files (True) or remove them (False).
         """
         if keep:
             exit("Error: Keep option does not make sense when executing "
@@ -3105,9 +3131,13 @@ class Manager:
         self._supported.remove()
         self._clean(quiet, False)
 
-    def _clean(self, quiet: bool, keep:bool) -> None:
+    def _clean(self, quiet: bool, keep:bool = False) -> None:
         """
         Remove all intermediate artifacts that might exist in the package.
+
+        Args:
+            quiet: Do not print any output (True).
+            keep: Keep temporary files (True) or remove them (False).
         """
         if not quiet:
             print("Removing temporary files...")
