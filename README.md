@@ -38,8 +38,6 @@ This includes:
 - Checking for known vulnerabilities in dependencies with [Safety](https://github.com/pyupio/safety).
 - Running tests with [Unittest](https://docs.python.org/3/library/unittest.html) and 
 evaluating test coverage with [Coverage.py](https://github.com/nedbat/coveragepy)
-- Test automation for running tests with various dependency versions using 
-[Nox](https://nox.thea.codes).
 - Generating documentation with [Sphinx](https://www.sphinx-doc.org/en/master/) and 
 markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 - Checking for undocumented code (built into `package.py`).
@@ -94,33 +92,6 @@ You may leave the version as it is. It is set automatically by `package.py`.
 3. Rename `src/pythontemplate` to whatever you like. The name determines how to import 
 the package in a python script. You should therefore omit spaces, underscores, and 
 dashes. You can add as many of these top-level folders as you like.
-4. Scroll to the bottom of the `package.py` file. There you find the function that
-[Nox](https://nox.thea.codes) is running for each test session:
-````py
-@nox.session(name=Settings.NOX_SESSION_NAME, python=Settings.NOX_PYTHON_VERSIONS)
-@nox.parametrize("python-dateutil", ["2.8", "2.7"])
-def tests(session, **kwargs):
-    """Run unit tests with various dependency version combinations."""
-    ...
-````
-You can parametrize Nox by adding the `@nox.parametrize(...)` decorator for each
-dependency you want to run your tests with. The desired versions of each dependency are
-added as a list. For example:
-````py
-@nox.session(name=Settings.NOX_SESSION_NAME, python=Settings.NOX_PYTHON_VERSIONS)
-@nox.parametrize("python-dateutil", ["2.8", "2.7"])
-@nox.parametrize("django", ["3.1", "3.2"])
-@nox.parametrize("numpy", ["1.22.3", "1.20.0"])
-def tests(session, **kwargs):
-    """Run unit tests with various dependency version combinations."""
-    ...
-````
-Note that the line
-````py
-@nox.parametrize("python-dateutil", ["2.8", "2.7"])
-````
-that is already present in `package.py` is just given as an example and can be removed 
-or modified as you wish.
 
 ### Commands
 You can access the help of `package.py` by running:
