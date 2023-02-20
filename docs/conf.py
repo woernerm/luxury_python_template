@@ -19,11 +19,11 @@ sys.path.append(os.path.abspath("../"))
 
 # -- Project information -----------------------------------------------------
 packagemod = importlib.import_module("package", "..")
-meta = packagemod.Meta("../setup.cfg")
+meta = packagemod.Meta("../pyproject.toml")
 
 project = meta.get("name")
 copyright = meta.getCopyright()
-author = meta.get("author")
+author = ", ".join(meta.getAuthors())
 
 # The full version, including alpha/beta/rc tags
 release = meta.get("version")

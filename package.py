@@ -128,7 +128,7 @@ class Settings:
     DISTRIBUTABLE_DIR = BASE_DIR / "dist"
 
     # The file that contains package configuration for setuptools.
-    CONFIGFILE = BASE_DIR / "setup.cfg"
+    CONFIGFILE = BASE_DIR / "pyproject.toml"
 
     # Directory in which badges are stored.
     BADGE_FOLDER = BASE_DIR / "data" / "badges"
@@ -148,15 +148,6 @@ class Settings:
 
     # The file in which test coverage information is stored (for the coverage package).
     TEST_COVERAGE_FILE = BASE_DIR / ".coverage"
-
-    # The file in which the nox session report is stored.
-    NOX_REPORT_JSON = TMP_DIR / "supported.json"
-
-    # The file in which the nox session report is stored.
-    NOX_LOG_FILE = TMP_DIR / "nox.log"
-
-    # The folder nox places the test environments in.
-    NOX_ENVIRONMENT_DIR = BASE_DIR / ".nox"
 
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
@@ -182,12 +173,6 @@ class Settings:
 
     # File for storing warnings about undefined or undocumented Python code.
     DOCUMENTATION_COVERAGE_FILE = TMP_DIR / "doccoverage.json"
-
-    # The name for the nox session for testing different python versions:
-    NOX_SESSION_NAME = "python"
-
-    # The python versions to test with nox.
-    NOX_PYTHON_VERSIONS = ["3.9", "3.10"]
 
     # ******************************************************
     # *** This section specifies colors for badges files ***
@@ -338,8 +323,8 @@ def runner(cmd: list):
     # Provide arguments to the module and run the module.
     sys.argv = arguments
 
-    # Run module and silence error messages as well as findings except for pip and nox.
-    cxt = nullcontext() if cmd[0] in ["nox", "pip"] else redirect_stdout(io.StringIO())
+    # Run module and silence error messages as well as findings except for pip.
+    cxt = nullcontext() if cmd[0] in ["pip"] else redirect_stdout(io.StringIO())
     # Silence error messages for tools that output findings on stderr although they
     # are part of normal operation. 
     cxt = redirect_stderr(io.StringIO()) if cmd[0] in ["mypy"] else cxt
@@ -698,7 +683,6 @@ class Report:
             appname: The name of the application / python package.
             version: The version of the application / python package.
         """
-        import dateutil.tz
         import jinja2
 
         self._sections = {}
@@ -706,7 +690,7 @@ class Report:
         self._appname = appname
         self._version = version
         self._settings = settings
-        self._timestamp = datetime.now(dateutil.tz.gettz())
+        self._timestamp = datetime.now().astimezone()
         self._environment = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(self._settings.REPORT_TEMPLATE_DIR)),
             autoescape=True,
@@ -864,7 +848,7 @@ class Report:
 
 class Meta:
     """
-    Class for reading package meta information from setup.cfg.
+    Class for reading package meta information from pyproject.toml.
 
     This is useful for third-party tools like sphinx to perform
     automatic configuration.
@@ -892,7 +876,7 @@ class Meta:
         """
 
         with open(self.configfile, "r", encoding="utf8") as f:
-            regex = r"[ ]*=[ ]*([^\n]+)?((\n[ \t]+([^\n]+))*)"
+            regex = r"[ ]*=[ ]*\"([^\n]+)?((\n[ \t]+([^\n]+))*)\""
             buf = f.read()
             match = re.search(keyword + regex, buf)
 
@@ -904,6 +888,26 @@ class Meta:
             out = [entry.strip() for entry in lines if entry.strip()]
             return out if len(out) > 1 else out[0]
 
+    def getAuthors(self):
+        """
+        Returns the names of all authors
+
+        Returns:
+            The names of all authors.
+        """
+
+        with open(self.configfile, "r", encoding="utf8") as f:
+            buf = f.read()
+            match = re.search(r"authors[ ]*=[ ]*\[.*?\]", buf, flags=re.MULTILINE | re.DOTALL)
+
+            if match is None:
+                raise LookupError(f'Could not determine authors.')
+
+            matchstr = match.group(0)
+            names = list(set(re.findall(r"name[ ]*=[ ]*\"([^\"]+)", matchstr)))
+            return names
+
+
     def getCopyright(self):
         """
         Generate a copyright string for documentation.
@@ -911,10 +915,10 @@ class Meta:
         Returns:
             String with copyright notice.
         """
-        import dateutil.tz
+        from datetime import timezone
 
-        date = datetime.now(dateutil.tz.UTC)
-        return str(date.year) + ", " + self.get("author")
+        date = datetime.now(timezone.utc)
+        return str(date.year) + ", " + ", ".join(self.getAuthors())
 
 
 class AbsBadge:
@@ -939,7 +943,7 @@ class AbsBadge:
         """
         self._settings = settings
         meta = Meta(settings.CONFIGFILE)
-        self._readmefilename = meta.get("long_description").split(":")[1].strip()
+        self._readmefilename = meta.get("readme")
         self._rel_abs_map = dict()
         with open(self._readmefilename, "r") as file:
             self._readme = file.read()
@@ -1227,8 +1231,8 @@ class CalVersion:
         """
         Initializes the instance with settings and determines the new version.
 
-        The current version is determined from the setup.cfg file. If the version does
-        not comply with the versioning scheme, the version is overwritten with
+        The current version is determined from the pyproject.toml file. If the version 
+        does not comply with the versioning scheme, the version is overwritten with
         micro / patch number zero.
 
         Args:
@@ -1266,9 +1270,9 @@ class CalVersion:
         This is done for cases in which there is no correct old version
         available to increment.
         """
-        import dateutil
+        from datetime import timezone
 
-        date = datetime.now(dateutil.tz.UTC)
+        date = datetime.now(timezone.utc)
         self.version = self.__versionstr(date.year, date.month, 0)
 
     def __bumpVersion(self, oldversion: list):
@@ -1282,9 +1286,9 @@ class CalVersion:
             oldversion: The old version as a list of strings. One
                 element for each part of the version.
         """
-        import dateutil
+        from datetime import timezone
 
-        date = datetime.now(dateutil.tz.UTC)
+        date = datetime.now(timezone.utc)
         oldmonth = int(oldversion[self.VER_MONTH])
         oldpatch = int(oldversion[self.VER_PATCH])
         newmonth = date.month
@@ -1307,7 +1311,7 @@ class CalVersion:
         """
         with open(filename, "r") as f:
             buf = str(f.read())
-            buf = re.sub(regex, r"\1 " + self.version, buf)
+            buf = re.sub(regex, r"\1 " + f"\"{self.version}\"", buf)
         with open(filename, "w") as f:
             f.write(buf)
 
@@ -1769,7 +1773,7 @@ class SecurityCheck:
         mkdirs_if_not_exists(self._settings.TMP_DIR)
 
         activefile = str(self._settings.SECURITY_ACTIVE_JSON)
-        setupfile = str(self._settings.TMP_DIR / "setup.cfg.json")
+        setupfile = str(self._settings.TMP_DIR / "pyproject.toml.json")
 
         # Check the currently activated environment for dependecy vulnerabilities.
         result = [
@@ -2125,156 +2129,6 @@ class Test:
             report.add(self._settings.REPORT_SECTION_NAME_TEST, table)
 
 
-class SupportedVersions:
-    """
-    Class for determining the dependency versions that are supported.
-
-    The class uses nox (https://nox.thea.codes/) for the task.
-    """
-
-    REGEX_SIGNATURE = re.compile(r"^[ ]*([^\(]+)(\(([^\)]+)\))?", re.IGNORECASE)
-    GROUP_SIGNATURE_PYTHON = 1
-    GROUP_SIGNATURE_DEPENDENCIES = 3
-
-    REGEX_DEPENDENCY = re.compile(
-        r"[ ,]*([^=]+?)[ ]*=[ ]*[^\d]*([\d\.]+)[^\d\.,]*", re.IGNORECASE
-    )
-    GROUP_DEPENDENCY_NAME = 1
-    GROUP_DEPENDENCY_VERSION = 2
-
-    def __init__(self, settings: Settings) -> None:
-        """
-        Initializes the class with settings.
-
-        Args:
-            settings: Settings instance to get settings from.
-        """
-        self._settings = settings
-        self._passed = False
-
-    def remove(self) -> None:
-        """
-        Removes old reports and intermediate artifacts like coverage files.
-        """
-        pass
-
-    def clean(self) -> None:
-        """
-        Removes intermediate artifacts like coverage files.
-        """
-        remove_if_exists(self._settings.NOX_REPORT_JSON)
-        remove_if_exists(self._settings.NOX_ENVIRONMENT_DIR)
-
-    def ispassed(self) -> bool:
-        """
-        Returns, whether the last run() call was successful and did not return issues.
-
-        Returns:
-            True, if the last call of run() was successful and did not return issues.
-            False, otherwise.
-        """
-        return self._passed
-
-    def run(self) -> bool:
-        """
-        Runs all unit tests and generates a coverage report.
-
-        Returns:
-            True, if all tests were successful. False, otherwise.
-        """
-        self.clean()
-
-        cwd = Path().cwd().absolute()
-        current_file = Path(__file__).absolute().relative_to(cwd)
-
-        self._passed = not bool(
-            pyexecute(
-                [
-                    "nox",
-                    "--noxfile",
-                    str(current_file),
-                    "--report",
-                    str(self._settings.NOX_REPORT_JSON),
-                ]
-            )
-        )
-        return self._passed
-
-    def _get_nox_log(self):
-        with open(self._settings.NOX_LOG_FILE, "r") as f:
-            return f.read()
-
-    def _get_packages(self, signature: str) -> List:
-        parts = self.REGEX_SIGNATURE.search(signature)
-        if parts is None:
-            raise ValueError("Signature does not follow expected format.")
-        python = parts.group(self.GROUP_SIGNATURE_PYTHON)
-        packages = [python.replace("-", " ").capitalize()]
-
-        dependencies = parts.group(self.GROUP_SIGNATURE_DEPENDENCIES)
-        if not dependencies:
-            return packages
-
-        dependencies = self.REGEX_DEPENDENCY.finditer(dependencies)
-        for depmatch in dependencies:
-            depname = depmatch.group(self.GROUP_DEPENDENCY_NAME)
-            depversion = depmatch.group(self.GROUP_DEPENDENCY_VERSION)
-            packages.append(f"{depname.capitalize()} {depversion}")
-
-        return packages
-
-    def _parse_signature(self, session):
-        signatures = session.get("signatures", [])
-        packages = list()
-        for sig in signatures:
-            packages += self._get_packages(sig)
-        return list(sorted(set(packages)))
-
-    def report(self, report: Report):
-        """
-        Exports the results to the given report.
-
-        Args:
-            report: The report to export the results to.
-        """
-        if not file_has_content(str(self._settings.NOX_REPORT_JSON)):
-            List = Report.List()
-            List.add("Failed to test other dependency versions.", "")
-            report.add(self._settings.REPORT_SECTION_NAME_DEPENDENCY_VERSIONS, List)
-            return
-
-        with open(self._settings.NOX_REPORT_JSON, "r") as f:
-            data = json.load(f)
-            List = Report.List()
-            tested_versions = 0
-            for session in data.get("sessions", []):
-                packages = self._parse_signature(session)
-                result = session.get("result", "Unknown").capitalize()
-                name = ", ".join(packages)
-
-                description = "The nox report does not contain any result."
-                if result == "Success":
-                    description = f"All tests passed with {name}."
-                elif result == "Failed":
-                    description = f"One or more tests failed with {name}."
-                elif result == "Skipped":
-                    description = (
-                        "Nox skipped the test session. "
-                        "See command line output for details."
-                    )
-                elif result:
-                    description = (
-                        f"Nox reports: {result}. "
-                        "See command line output for details."
-                    )
-
-                List.add(f"{name}: {result}", description)
-                tested_versions += 1
-
-            List.summary = ("Tested Dependency Combinations", tested_versions, "")
-            report.add(self._settings.REPORT_SECTION_NAME_DEPENDENCY_VERSIONS, List)
-
-
 class Build:
     """
     Class for building distributable files (e.g. wheel and source distributions).
@@ -2287,7 +2141,7 @@ class Build:
 
     def __init__(self, settings: Settings) -> None:
         """
-        Initializes the class with settings and the package name by reading setup.cfg.
+        Initializes class with settings and the package name by reading pyproject.toml.
 
         Args:
             settings: Settings instance to get settings from.
@@ -2753,6 +2607,9 @@ class DocInspector:
             numdoc = self.documented[file]
             numundoc = len([e for e in self.log if e[self.KEY_FILE] == file])
 
+        if numdoc + numundoc == 0:
+            return 0 # Avoid division by zero.
+
         return math.floor(numdoc / (numdoc + numundoc) * 100)
 
     def report(self, report: Report) -> None:
@@ -2814,13 +2671,12 @@ class Manager:
 
     CMD_CHOICES = ["build", "report", "doc", "remove"]
     REQUIREMENTS = [
+        ("black", None, None),
         ("jinja2", None, None),
         ("pybadges", None, None),
-        ("dateutil", "python-dateutil", None),
         ("sphinx", None, None),
         ("pydata_sphinx_theme", None, None),
         ("myst_parser", "myst_parser[linkify]", None),
-        ("black", None, None),
         ("isort", None, None),
         ("flake8", None, None),
         ("flake8_json_reporter", "flake8-json", None),
@@ -2830,7 +2686,6 @@ class Manager:
         ("build", None, None),
         ("mypy", None, None),
         ("defusedxml", None, None),
-        ("nox", None, None),
     ]
 
     def __init__(self, settings: Settings) -> None:
@@ -2899,7 +2754,6 @@ class Manager:
         self._type = TypeCheck(self._settings)
         self._security = SecurityCheck(self._settings)
         self._test = Test(self._settings)
-        self._supported = SupportedVersions(self._settings)
         self._doc = Documentation(self._settings)
         self._docinspector = DocInspector(self._settings)
         self._build = Build(self._settings)
@@ -2921,22 +2775,6 @@ class Manager:
                 missing dependencies.
         """
         requirements = self.REQUIREMENTS
-
-        # Sometimes, there can be issues with missing certificates when using the
-        # safety package on Windows systems. This can be solved by installing
-        # python-certify-win32. However, this package may sometimes also fail to install
-        # if there is no matching version available. Therefore, only try to install
-        # it once if safety is also not yet installed. If it fails, do not try to
-        # install it again to avoid repetitive questions although everything is
-        # working.
-        if platform.system() == "Windows" and require([("safety", None, None)], False):
-            requirements += [
-                (
-                    "python-certify-win32",
-                    None,
-                    None,
-                )
-            ]
 
         notinstalled = require(requirements, False) # type: ignore
 
@@ -2992,14 +2830,10 @@ class Manager:
             print("Running tests...")
         testresult = self._test.run()
         if not quiet:
-            print("Running tests with other python and dependency versions...")
-        supported = self._supported.run()
-        if not quiet:
             print("Generating documentation...")
         docresult = self._doc.run()
 
         self._docinspector.load()
-        self._supported.report(self._report)
         self._test.report(self._report)
         self._docinspector.report(self._report)
         self._security.report(self._report)
@@ -3022,7 +2856,6 @@ class Manager:
             and testresult
             and docresult
             and typeresult
-            and supported
         )
 
     def build(self, quiet: bool, keep:bool = False) -> None:
@@ -3039,7 +2872,7 @@ class Manager:
             keep: Keep temporary files (True) or remove them (False).
         """
         print(f"Setting version to {self._version}.")
-        configregex = r"(version[ ]*=)[ ]*[^\n]*"
+        configregex = r"(version[ ]*=)[ ]*\"[^\n]*\""
         self._version.bump(str(self._settings.CONFIGFILE), configregex)
 
         self.remove(quiet)
@@ -3128,7 +2961,6 @@ class Manager:
         self._doc.remove()
         self._security.remove()
         self._type.remove()
-        self._supported.remove()
         self._clean(quiet, False)
 
     def _clean(self, quiet: bool, keep:bool = False) -> None:
@@ -3150,32 +2982,8 @@ class Manager:
             self._doc.clean()
             self._security.clean()
             self._type.clean()
-            self._supported.clean()
 
 
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
     Manager(Settings())
-
-try:
-    import nox
-
-    @nox.session(name=Settings.NOX_SESSION_NAME, python=Settings.NOX_PYTHON_VERSIONS)
-    @nox.parametrize("python-dateutil", ["2.8", "2.7"])
-    def tests(session, **kwargs):
-        """Run unit tests with various dependency version combinations."""
-
-        for dependency, version in kwargs.items():
-            session.install(f"{dependency}=={version}")
-
-        def ign_func(dir, content):
-            return [c for c in content if c[0] == "." or c == "__pycache__"]
-
-        cwd = Path(session.create_tmp())
-        shutil.copytree(session.invoked_from, cwd, ignore=ign_func, dirs_exist_ok=True)
-
-        with session.chdir(cwd):
-            session.run("python", "-m", "unittest", "-q")
-
-except ModuleNotFoundError:
-    pass
