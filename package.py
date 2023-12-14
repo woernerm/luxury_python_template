@@ -26,8 +26,6 @@ you can just hit tab for autocompletion after the first "p" of "package.py". Mak
 faster typing. ;)
 """
 import argparse
-from distutils.command.clean import clean
-from distutils.dir_util import remove_tree
 import glob
 import importlib
 import inspect
@@ -37,7 +35,6 @@ import math
 import multiprocessing
 import os
 import pkgutil
-import platform
 import re
 import runpy
 import shutil
@@ -55,6 +52,23 @@ class Settings:
 
     You can change the default settings directly in this class.
     """
+
+    # Remove features from the list that you do not need.
+    FEATURES = [
+        "GENERATE_DOCUMENTATION",
+        "GENERATE_REPORT",
+        "BUILD_WHEELS",
+        "CHECK_SECURITY",
+        "RUN_TESTS",
+        "CHECK_STYLE",
+        "CHECK_TYPES"
+        "UPDATE_PASSFAIL_BADGE",
+        "UPDATE_TESTCOVERAGE_BADGE",
+        "UPDATE_TEST_BADGE",
+        "UPDATE_DOCCOVERAGE_BADGE",
+        "UPDATE_SECURITY_BADGE",
+        "UPDATE_BUILD_BADGE",
+    ]
 
     # Base directory of the repository.
     BASE_DIR = Path(__file__).parents[0]
@@ -674,6 +688,14 @@ class Report:
             color = "".join(color)
             return hash(filepath + range + color)
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "GENERATE_REPORT" in settings.FEATURES:
+            return [
+                ("jinja2", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings, appname: str, version: str) -> None:
         """
         Initializes the report.
@@ -683,20 +705,23 @@ class Report:
             appname: The name of the application / python package.
             version: The version of the application / python package.
         """
-        import jinja2
 
+        self.active = "GENERATE_REPORT" in settings.FEATURES
         self._sections = {}
         self._files = {}
         self._appname = appname
         self._version = version
         self._settings = settings
-        self._timestamp = datetime.now().astimezone()
-        self._environment = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(self._settings.REPORT_TEMPLATE_DIR)),
-            autoescape=True,
-        )
-        self._maintemplate = self._environment.get_template("main.jinja")
-        self._filetemplate = self._environment.get_template("file.jinja")
+
+        if self.active:
+            import jinja2
+            self._timestamp = datetime.now().astimezone()
+            self._environment = jinja2.Environment(
+                loader=jinja2.FileSystemLoader(str(self._settings.REPORT_TEMPLATE_DIR)),
+                autoescape=True,
+            )
+            self._maintemplate = self._environment.get_template("main.jinja")
+            self._filetemplate = self._environment.get_template("file.jinja")
 
     def render(self):
         """
@@ -704,6 +729,10 @@ class Report:
 
         The HTML files will be stored in the directory given by REPORT_FILES_DIR.
         """
+        if not self.active:
+            print(f"Skipping report generation.")
+            return
+        
         outputdir = Path(self._settings.REPORT_HTML).parent
 
         # Create output directories.
@@ -1003,6 +1032,22 @@ class Badge:
     a device that is disconnected from the internet.
     """
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        badges = {
+            "UPDATE_PASSFAIL_BADGE",
+            "UPDATE_TESTCOVERAGE_BADGE",
+            "UPDATE_TEST_BADGE",
+            "UPDATE_DOCCOVERAGE_BADGE",
+            "UPDATE_SECURITY_BADGE",
+            "UPDATE_BUILD_BADGE",
+        }
+        if badges & set(settings.FEATURES):
+            return [
+                ("pybadges", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initialize the class with settings.
@@ -1012,6 +1057,7 @@ class Badge:
         """
         self._settings = settings
         self._absbadge = AbsBadge(settings)
+        self.active = True
 
     def get_badgefile(self, badgename: str) -> str:
         """
@@ -1143,6 +1189,10 @@ class Badge:
             value: The coverage value in percent.
             thresholds: The threshold dictionary to use for assigning colors.
         """
+        if not self.active:
+            print(f"Skipping coverage badge.")
+            return
+        
         import pybadges
 
         badge_data = self.get_coverage_badge_data(title, value, thresholds)
@@ -1163,6 +1213,10 @@ class Badge:
             value: The number of issues found.
             thresholds: The threshold dictionary to use for assigning colors.
         """
+        if not self.active:
+            print(f"Skipping issue badge.")
+            return
+        
         import pybadges
 
         badge_data = self.get_issue_badge_data(title, value, thresholds)
@@ -1185,6 +1239,10 @@ class Badge:
             name: The name displayed on the badge.
             passing: True, if the badge shall indicate passage. False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping passfail badge.")
+            return
+        
         import pybadges
 
         badge_data = self.get_passfail_badge_data(name, passing)
@@ -1329,6 +1387,16 @@ class Documentation:
     missing documentation is reported.
     """
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "GENERATE_DOCUMENTATION" in settings.FEATURES:
+            return [
+                ("sphinx", None, None),
+                ("pydata_sphinx_theme", None, None),
+                ("myst_parser", "myst_parser[linkify]", None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes the class with settings.
@@ -1338,6 +1406,7 @@ class Documentation:
         """
         self._settings = settings
         self._passed = False
+        self.active = "GENERATE_DOCUMENTATION" in settings.FEATURES
 
     def remove(self) -> None:
         """
@@ -1374,6 +1443,10 @@ class Documentation:
         Returns:
             True, if generation was successful. False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping documentation.")
+            return
+        
         self.remove()
 
         # Generate new documentation
@@ -1426,6 +1499,17 @@ class StyleCheck:
     KEY_DESCRIPTION = "text"
     KEY_FILENAME = "filename"
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "CHECK_STYLE" in settings.FEATURES:
+            return [
+                ("flake8", None, None),
+                ("flake8_json_reporter", "flake8-json", None),
+                ("isort", None, None),
+                ("black", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes the class with settings.
@@ -1435,6 +1519,7 @@ class StyleCheck:
         """
         self._settings = settings
         self._passed = False
+        self.active = "CHECK_STYLE" in settings.FEATURES
 
     def remove(self) -> None:
         """
@@ -1469,6 +1554,10 @@ class StyleCheck:
             True, if styling was successful and there were no remaining errors.
             False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping style check.")
+            return
+        
         self.clean()
         self.flakefile = str(self._settings.STYLE_REPORT_JSON)
 
@@ -1505,6 +1594,10 @@ class StyleCheck:
         Args:
             report: The report to export the results to.
         """
+        if not self.active:
+            print(f"Skipping style check report.")
+            return
+        
         if not file_has_content(self.flakefile):
             report.add(self._settings.REPORT_SECTION_NAME_STYLE, Report.List())
             return # Nothing to report.
@@ -1566,6 +1659,15 @@ class TypeCheck:
     GROUP_MSG = 4
     GROUP_CODE = 5
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "CHECK_TYPES" in settings.FEATURES:
+            return [
+                ("mypy", None, None),
+                ("defusedxml", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes the class with settings.
@@ -1575,6 +1677,7 @@ class TypeCheck:
         """
         self._settings = settings
         self._passed = False
+        self.active = "CHECK_TYPES" in settings.FEATURES
 
     def remove(self) -> None:
         """
@@ -1610,6 +1713,10 @@ class TypeCheck:
             True, if no type errors were found.
             False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping type check.")
+            return
+        
         self.clean()
 
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
@@ -1651,6 +1758,10 @@ class TypeCheck:
         Args:
             report: The report to export the results to.
         """
+        if not self.active:
+            print(f"Skipping type check report.")
+            return
+        
         import defusedxml.ElementTree as et
 
         tree = et.parse(self._settings.TYPE_REPORT_XML)
@@ -1723,6 +1834,15 @@ class SecurityCheck:
     KEY_SAFETY_INSTALLED = "analyzed_version"
     KEY_SAFETY_DETAILS = "advisory"
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "CHECK_SECURITY" in settings.FEATURES:
+            return [
+                ("safety", None, None),
+                ("bandit", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes the class with settings.
@@ -1734,6 +1854,7 @@ class SecurityCheck:
         self.safetyfilenames = {}
         self.banditfilename = ""
         self._passed = False
+        self.active = "CHECK_SECURITY" in settings.FEATURES
 
     def remove(self) -> None:
         """
@@ -1879,6 +2000,10 @@ class SecurityCheck:
             True, if the run was successful and no security issues were found.
             False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping security check.")
+            return
+        
         self.clean()
         self.safetyfilenames = {}
         self.banditfilename = ""
@@ -1894,6 +2019,10 @@ class SecurityCheck:
         Args:
             report: The report to export the results to.
         """
+        if not self.active:
+            print(f"Skipping security check report.")
+            return
+        
         # Generate dependency report.
         for name, filename in self.safetyfilenames.items():
             if not os.path.isfile(str(filename)):
@@ -2013,6 +2142,14 @@ class Test:
     KEY_MISSING = "missing_lines"
     KEY_EXCLUDED = "excluded_lines"
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "RUN_TESTS" in settings.FEATURES:
+            return [
+                ("coverage", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes the class with settings.
@@ -2022,6 +2159,7 @@ class Test:
         """
         self._settings = settings
         self._passed = False
+        self.active = "RUN_TESTS" in settings.FEATURES
 
     def remove(self) -> None:
         """
@@ -2053,6 +2191,10 @@ class Test:
         Returns:
             True, if all tests were successful. False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping testing.")
+            return
+        
         self.clean()
 
         self.coveragefile = str(self._settings.TEST_COVERAGE_JSON)
@@ -2084,6 +2226,10 @@ class Test:
         Args:
             report: The report to export the results to.
         """
+        if not self.active:
+            print(f"Skipping test report.")
+            return
+        
         if not file_has_content(self.coveragefile):
             print(self.coveragefile, "has not content")
             List = Report.List()
@@ -2139,6 +2285,14 @@ class Build:
         - Remove the temporary build artifacts.
     """
 
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        if "BUILD_WHEELS" in settings.FEATURES:
+            return [
+                ("build", None, None),
+            ]
+        return []
+
     def __init__(self, settings: Settings) -> None:
         """
         Initializes class with settings and the package name by reading pyproject.toml.
@@ -2149,10 +2303,11 @@ class Build:
 
         self._settings = settings
         self._passed = False
+        self.active = "BUILD_WHEELS" in settings.FEATURES
 
         with open(self._settings.CONFIGFILE, "r") as f:
             buf = str(f.read())
-            match = re.search(r"name[ ]*=[ ]*([^\n ]+)", buf)
+            match = re.search(r"name[ ]*=[ ]*\"([^\n\" ]+)", buf)
 
             if match is None:
                 raise LookupError("Could not determine package name.")
@@ -2167,10 +2322,14 @@ class Build:
         distdir = self._settings.DISTRIBUTABLE_DIR
         self.clean()
 
+        print("REMOVING CONTENTS of ", str(distdir / distfiles))
+
         for f in glob.glob(str(distdir / distfiles) + "*.*"):
+            print("removing ", f)
             remove_if_exists(f)
 
         for f in glob.glob(str(distdir / self.packagename) + "*.*"):
+            print("removing ", f)
             remove_if_exists(f)
 
         remove_if_empty(distdir)
@@ -2201,6 +2360,10 @@ class Build:
         Returns:
             True, if operation was successful. False, otherwise.
         """
+        if not self.active:
+            print(f"Skipping build.")
+            return
+        
         self.remove()
 
         builddir = str(self._settings.DISTRIBUTABLE_DIR)
@@ -2670,23 +2833,6 @@ class Manager:
     """
 
     CMD_CHOICES = ["build", "report", "doc", "remove"]
-    REQUIREMENTS = [
-        ("black", None, None),
-        ("jinja2", None, None),
-        ("pybadges", None, None),
-        ("sphinx", None, None),
-        ("pydata_sphinx_theme", None, None),
-        ("myst_parser", "myst_parser[linkify]", None),
-        ("isort", None, None),
-        ("flake8", None, None),
-        ("flake8_json_reporter", "flake8-json", None),
-        ("safety", None, None),
-        ("bandit", None, None),
-        ("coverage", None, None),
-        ("build", None, None),
-        ("mypy", None, None),
-        ("defusedxml", None, None),
-    ]
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2774,7 +2920,16 @@ class Manager:
             yesmode: Set to True if the user shall not be asked whether to install any
                 missing dependencies.
         """
-        requirements = self.REQUIREMENTS
+        requirements = (
+            StyleCheck.get_requirements(self._settings) +
+            TypeCheck.get_requirements(self._settings) +
+            SecurityCheck.get_requirements(self._settings) +
+            Test.get_requirements(self._settings) + 
+            Documentation.get_requirements(self._settings) + 
+            Build.get_requirements(self._settings) + 
+            Report.get_requirements(self._settings) + 
+            Badge.get_requirements(self._settings)
+        )
 
         notinstalled = require(requirements, False) # type: ignore
 
@@ -2833,12 +2988,18 @@ class Manager:
             print("Generating documentation...")
         docresult = self._doc.run()
 
-        self._docinspector.load()
-        self._test.report(self._report)
-        self._docinspector.report(self._report)
-        self._security.report(self._report)
-        self._style.report(self._report)
-        self._type.report(self._report)
+        if "GENERATE_DOCUMENTATION" in self._settings.FEATURES:
+            self._docinspector.load()
+        if "RUN_TESTS" in self._settings.FEATURES:
+            self._test.report(self._report)
+        if "GENERATE_DOCUMENTATION" in self._settings.FEATURES:
+            self._docinspector.report(self._report)
+        if "CHECK_SECURITY" in self._settings.FEATURES:
+            self._security.report(self._report)
+        if "CHECK_STYLE" in self._settings.FEATURES:
+            self._style.report(self._report)
+        if "CHECK_TYPES" in self._settings.FEATURES:
+            self._type.report(self._report)
 
         self._report.render()
 
@@ -2878,32 +3039,38 @@ class Manager:
         self.remove(quiet)
         self.report(quiet, keep)
 
-        self._badge.coverage_badge(
-            "test coverage",
-            self._report.get_total(self._settings.REPORT_SECTION_NAME_TEST),
-            self._settings.TEST_COVERAGE_THRESHOLDS,
-        )
-        self._badge.coverage_badge(
-            "doc coverage",
-            self._report.get_total(self._settings.REPORT_SECTION_NAME_DOCUMENTATION),
-            self._settings.DOCUMENTATION_COVERAGE_THRESHOLDS,
-        )
-        self._badge.issue_badge(
-            "vulnerabilities",
-            self._report.get_total(self._settings.REPORT_SECTION_NAME_SECURITY)
-            + self._report.get_total(self._settings.REPORT_SECTION_NAME_DEPENDENCIES),
-            self._settings.SECURITY_ISSUES_THRESHOLDS,
-        )
-        self._badge.passfail_badge("test", self._test.ispassed())
+        if "UPDATE_TESTCOVERAGE_BADGE" in self._settings.FEATURES:
+            self._badge.coverage_badge(
+                "test coverage",
+                self._report.get_total(self._settings.REPORT_SECTION_NAME_TEST),
+                self._settings.TEST_COVERAGE_THRESHOLDS,
+            )
+        if "UPDATE_DOCCOVERAGE_BADGE" in self._settings.FEATURES:
+            self._badge.coverage_badge(
+                "doc coverage",
+                self._report.get_total(self._settings.REPORT_SECTION_NAME_DOCUMENTATION),
+                self._settings.DOCUMENTATION_COVERAGE_THRESHOLDS,
+            )
+        if "UPDATE_SECURITY_BADGE" in self._settings.FEATURES:
+            self._badge.issue_badge(
+                "vulnerabilities",
+                self._report.get_total(self._settings.REPORT_SECTION_NAME_SECURITY)
+                + self._report.get_total(self._settings.REPORT_SECTION_NAME_DEPENDENCIES),
+                self._settings.SECURITY_ISSUES_THRESHOLDS,
+            )
+        if "UPDATE_TEST_BADGE" in self._settings.FEATURES:
+            self._badge.passfail_badge("test", self._test.ispassed())
         # For including the result in the build, assume that build was successful.
         # Otherwise, it will not be included in a non-existing (failed) build anyway.
-        self._badge.passfail_badge("build", True)
+        if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
+            self._badge.passfail_badge("build", True)
         self._badge.write_absolute_readme()
 
         if not quiet:
             print("Building wheels...")
         self._build.run()
-        self._badge.passfail_badge("build", self._build.ispassed())
+        if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
+            self._badge.passfail_badge("build", self._build.ispassed())
         self._badge.write_relative_readme()
 
         if not quiet:
