@@ -2037,22 +2037,22 @@ class SecurityCheck:
                     data = json.load(f)
                     vulnerabilities = data[self.KEY_SAFETY_VULNERABILITIES]
                     for v in vulnerabilities:
-                        summary = (
-                            "<b>"
-                            + v[self.KEY_SAFETY_NAME]
-                            + "</b> "
-                            + v[self.KEY_SAFETY_SPEC]
+                        name = v[self.KEY_SAFETY_NAME]
+                        spec = v[self.KEY_SAFETY_SPEC]
+                        itid = v[self.KEY_SAFETY_ID]
+                        istl = v[self.KEY_SAFETY_INSTALLED]
+                        det = v[self.KEY_SAFETY_DETAILS]
+                        spec_str = ", ".join(spec) if isinstance(spec, list) else spec
+                        name_str = ", ".join(name) if isinstance(name, list) else name
+                        id_str = ", ".join(itid) if isinstance(itid, list) else itid
+                        installed = ", ".join(istl) if isinstance(istl, list) else istl
+                        details_str = ", ".join(det) if isinstance(det, list) else det
+                        summary = f"<b>{name_str}</b> {spec_str}"
+                        det = (
+                            f"<b>ID</b>: {id_str}<br /><b>Installed</b>: {installed}"
+                            f"<br />{details_str}"
                         )
-                        details = (
-                            "<b>ID</b>: "
-                            + v[self.KEY_SAFETY_ID]
-                            + "<br />"
-                            + "<b>Installed</b>: "
-                            + v[self.KEY_SAFETY_INSTALLED]
-                            + "<br />"
-                            + v[self.KEY_SAFETY_DETAILS]
-                        )
-                        List.add(summary, details)
+                        List.add(summary, det)
                     report.add("Dependencies", List)
                 except json.decoder.JSONDecodeError:
                     pass
@@ -2322,7 +2322,7 @@ class Build:
         distdir = self._settings.DISTRIBUTABLE_DIR
         self.clean()
 
-        print("REMOVING CONTENTS of ", str(distdir / distfiles))
+        print("Removing contents of ", str(distdir / distfiles))
 
         for f in glob.glob(str(distdir / distfiles) + "*.*"):
             print("removing ", f)
