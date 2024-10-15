@@ -103,9 +103,6 @@ class Settings:
     # Name of the report section about testing.
     REPORT_SECTION_NAME_DEPENDENCY_VERSIONS = "Versions"
 
-    # Name of the report section about vulnerabilities found in dependencies (safety).
-    REPORT_SECTION_NAME_DEPENDENCIES = "Dependencies"
-
     # Name of the report section about security (bandit).
     REPORT_SECTION_NAME_SECURITY = "Security"
 
@@ -166,18 +163,8 @@ class Settings:
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
 
-    # Search expression for pip's requirement files. Each file found will be evaluated
-    # by safety to detect dependency vulnerabilities.
-    SECURITY_REQUIREMENTS_GLOB = str(BASE_DIR / "req") + "*.txt"
-
     # The file in which bandit's results are stored (for parsing by package.py).
     SECURITY_BANDIT_JSON = TMP_DIR / "bandit.json"
-
-    # The file in which security test information about the currently active environment
-    # is stored (for parsing by package.py). Note that not only requirement files
-    # will be evaluated by safety but also the currently active environment (the one
-    # package.py was called from).
-    SECURITY_ACTIVE_JSON = TMP_DIR / "environment.json"
 
     # The file in which style violations are documented.
     STYLE_REPORT_JSON = TMP_DIR / "style.json"
@@ -1827,18 +1814,11 @@ class SecurityCheck:
     KEY_BANDIT_TESTID = "test_id"
     KEY_BANDIT_INFO = "more_info"
     KEY_BANDIT_LINES = "line_range"
-    KEY_SAFETY_ID = "vulnerability_id"
-    KEY_SAFETY_NAME = "package_name"
-    KEY_SAFETY_SPEC = "vulnerable_spec"
-    KEY_SAFETY_VULNERABILITIES = "vulnerabilities"
-    KEY_SAFETY_INSTALLED = "analyzed_version"
-    KEY_SAFETY_DETAILS = "advisory"
 
     @classmethod
     def get_requirements(cls, settings: Settings):
         if "CHECK_SECURITY" in settings.FEATURES:
             return [
-                ("safety", None, None),
                 ("bandit", None, None),
             ]
         return []
@@ -1851,7 +1831,6 @@ class SecurityCheck:
             settings: Settings instance to get settings from.
         """
         self._settings = settings
-        self.safetyfilenames = {}
         self.banditfilename = ""
         self._passed = False
         self.active = "CHECK_SECURITY" in settings.FEATURES
@@ -1869,8 +1848,6 @@ class SecurityCheck:
         Removes intermediate artifacts.
         """
 
-        for filename in self.safetyfilenames.values():
-            remove_if_exists(filename)
         remove_if_exists(self.banditfilename)
         remove_if_empty(self._settings.TMP_DIR)
 
@@ -1881,82 +1858,6 @@ class SecurityCheck:
         Returns:
             True, if the last call of run() was successful. False, otherwise.
         """
-        return self._passed
-
-    def _safety(self) -> bool:
-        """
-        Runs the tool "safety" to examine, whether dependencies contain vulnerabilities.
-
-        Returns:
-            True, if the run was successful and no issues were found. False, otherwise.
-        """
-
-        mkdirs_if_not_exists(self._settings.TMP_DIR)
-
-        activefile = str(self._settings.SECURITY_ACTIVE_JSON)
-        setupfile = str(self._settings.TMP_DIR / "pyproject.toml.json")
-
-        # Check the currently activated environment for dependecy vulnerabilities.
-        result = [
-            not bool(
-                pyexecute(
-                    [
-                        "safety",
-                        "check",
-                        "--output",
-                        "json",
-                        "--save-json",
-                        activefile,
-                    ]
-                )
-            )
-        ]
-
-        # Check the config file of the package
-        result += [
-            not bool(
-                pyexecute(
-                    [
-                        "safety",
-                        "check",
-                        "--file",
-                        str(self._settings.CONFIGFILE),
-                        "--output",
-                        "json",
-                        "--save-json",
-                        setupfile,
-                    ]
-                )
-            )
-        ]
-
-        self.safetyfilenames["Active Environment"] = activefile
-        self.safetyfilenames[self._settings.CONFIGFILE.name] = setupfile
-
-        # Check all available requirements files for dependency vulnerabilities.
-        for f in glob.glob(self._settings.SECURITY_REQUIREMENTS_GLOB):
-            filepath = Path(f)
-            filename = Path(f).name
-
-            result += [
-                not bool(
-                    pyexecute(
-                        [
-                            "safety",
-                            "check",
-                            "-r",
-                            str(filepath.resolve()),
-                            "--full-report",
-                            "--json",
-                            "--output",
-                            str(self._settings.TMP_DIR / filename) + ".json",
-                        ]
-                    )
-                )
-            ]
-            self.safetyfilenames[Path(f).name] = f
-
-        self._passed = all(result)
         return self._passed
 
     def _bandit(self) -> bool:
@@ -2005,12 +1906,9 @@ class SecurityCheck:
             return
         
         self.clean()
-        self.safetyfilenames = {}
         self.banditfilename = ""
 
-        bresult = self._bandit()
-        sresult = self._safety()
-        return bresult and sresult
+        return self._bandit()
 
     def report(self, report: Report):
         """
@@ -2022,40 +1920,6 @@ class SecurityCheck:
         if not self.active:
             print(f"Skipping security check report.")
             return
-        
-        # Generate dependency report.
-        for name, filename in self.safetyfilenames.items():
-            if not os.path.isfile(str(filename)):
-                List = Report.List(name)
-                List.add("Analysis failed.", "")
-                report.add("Dependencies", List)
-                continue
-            
-            with open(filename, "r") as f:
-                List = Report.List(name)
-                try:
-                    data = json.load(f)
-                    vulnerabilities = data[self.KEY_SAFETY_VULNERABILITIES]
-                    for v in vulnerabilities:
-                        name = v[self.KEY_SAFETY_NAME]
-                        spec = v[self.KEY_SAFETY_SPEC]
-                        itid = v[self.KEY_SAFETY_ID]
-                        istl = v[self.KEY_SAFETY_INSTALLED]
-                        det = v[self.KEY_SAFETY_DETAILS]
-                        spec_str = ", ".join(spec) if isinstance(spec, list) else spec
-                        name_str = ", ".join(name) if isinstance(name, list) else name
-                        id_str = ", ".join(itid) if isinstance(itid, list) else itid
-                        installed = ", ".join(istl) if isinstance(istl, list) else istl
-                        details_str = ", ".join(det) if isinstance(det, list) else det
-                        summary = f"<b>{name_str}</b> {spec_str}"
-                        det = (
-                            f"<b>ID</b>: {id_str}<br /><b>Installed</b>: {installed}"
-                            f"<br />{details_str}"
-                        )
-                        List.add(summary, det)
-                    report.add("Dependencies", List)
-                except json.decoder.JSONDecodeError:
-                    pass
 
         # Check whether report fole exists.
         if not os.path.isfile(str(self.banditfilename)):
@@ -2928,7 +2792,8 @@ class Manager:
             Documentation.get_requirements(self._settings) + 
             Build.get_requirements(self._settings) + 
             Report.get_requirements(self._settings) + 
-            Badge.get_requirements(self._settings)
+            Badge.get_requirements(self._settings) + 
+            [("setuptools", None, None)]
         )
 
         notinstalled = require(requirements, False) # type: ignore
@@ -3054,8 +2919,7 @@ class Manager:
         if "UPDATE_SECURITY_BADGE" in self._settings.FEATURES:
             self._badge.issue_badge(
                 "vulnerabilities",
-                self._report.get_total(self._settings.REPORT_SECTION_NAME_SECURITY)
-                + self._report.get_total(self._settings.REPORT_SECTION_NAME_DEPENDENCIES),
+                self._report.get_total(self._settings.REPORT_SECTION_NAME_SECURITY),
                 self._settings.SECURITY_ISSUES_THRESHOLDS,
             )
         if "UPDATE_TEST_BADGE" in self._settings.FEATURES:
