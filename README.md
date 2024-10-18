@@ -35,7 +35,6 @@ This includes:
 - Static type analysis with [MyPy](https://github.com/python/mypy).
 - Checking for residual style errors with [Flake8](https://github.com/PyCQA/flake8).
 - Checking for security issues with [Bandit](https://github.com/PyCQA/bandit).
-- Checking for known vulnerabilities in dependencies with [Safety](https://github.com/pyupio/safety).
 - Running tests with [Unittest](https://docs.python.org/3/library/unittest.html) and 
 evaluating test coverage with [Coverage.py](https://github.com/nedbat/coveragepy)
 - Generating documentation with [Sphinx](https://www.sphinx-doc.org/en/master/) and 
