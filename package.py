@@ -116,10 +116,10 @@ class Settings:
     REPORT_LINE_RANGE = 10
 
     # Root directory for documentation.
-    DOCUMENTATION_ROOT_DIR = BASE_DIR / "docs"
+    DOCUMENTATION_ROOT_DIR = BASE_DIR / "docfiles"
 
     # The directory in which the generated html documentation is stored.
-    DOCUMENTATION_HTML_DIR = DOCUMENTATION_ROOT_DIR / "html"
+    DOCUMENTATION_HTML_DIR = BASE_DIR / "docs"
 
     # Directories in the html output that can be deleted, because they are irrelevant.
     DOCUMENTATION_HTML_DIR_EXCLUDE = [
@@ -1466,6 +1466,7 @@ class Documentation:
                 ]
             )
         )
+        (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").write_text("")
         self._passed = step1result and step2result
         return self._passed
 
