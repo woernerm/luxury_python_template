@@ -1,8 +1,8 @@
-from unittest import TestCase as _TestCase
-import src.pythontemplate.example_module as _example
+from unittest import TestCase
+from pythontemplate.example_module import example_function
 
 
-class MyExampleTestCase(_TestCase):
+class MyExampleTestCase(TestCase):
     def test_example_function(self):
         value = 42
-        self.assertEqual(_example.example_function(value), value)
+        self.assertEqual(example_function(value), value)
