@@ -49,7 +49,7 @@ shown above.
 
 ## Supported Package Managers
 The luxury python template supports both pip and the super fast [uv](https://docs.astral.sh/uv/).
-If uv is installed, package.py will default to uv. Otherwise, pip is selected.
+If uv is installed, package.py will default to uv. Otherwise, pip is used.
 
 ## Example Report
 The `package.py` tool that comes with the template can generate a single, 
