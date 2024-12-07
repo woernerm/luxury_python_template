@@ -34,7 +34,6 @@ import json
 import math
 import multiprocessing
 import os
-import pkgutil
 import re
 import runpy
 import shutil
@@ -316,7 +315,8 @@ def runner(cmd: list):
     # Create the list of arguments to provide to the executed module. For this, obtain
     # the file path for the module and set it as first argument, then copy the remaining
     # arguments as they are to the argument list.
-    path = Path(pkgutil.get_loader(cmd[0]).path)  # type: ignore
+    spec = importlib.util.find_spec(cmd[0])
+    path = Path(spec.loader.path)  # type: ignore
     apppath = path.parents[0] / "__main__.py" if path.name == "__init__.py" else path
     arguments = list([str(apppath)])
     arguments += cmd[1:]
