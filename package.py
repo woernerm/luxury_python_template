@@ -69,6 +69,10 @@ class Settings:
         "UPDATE_BUILD_BADGE",
     ]
 
+    # **********************************************
+    # *** This section specifies temporary files ***
+    # **********************************************
+
     # Base directory of the repository.
     BASE_DIR = Path(__file__).parents[0]
 
@@ -78,8 +82,46 @@ class Settings:
     # Patterns to omit for coverage.
     COVERAGE_OMIT_PATTERN = "*/test*"
 
+    # Root directory for documentation.
+    DOCUMENTATION_ROOT_DIR = BASE_DIR / "docfiles"
+
+    # The directory in which the generated html documentation is stored.
+    DOCUMENTATION_HTML_DIR = BASE_DIR / "docs"
+
+    # Directories in the html output that can be deleted, because they are irrelevant.
+    DOCUMENTATION_HTML_DIR_EXCLUDE = [
+        DOCUMENTATION_HTML_DIR / ".doctrees",
+        DOCUMENTATION_HTML_DIR / "_sources",
+        DOCUMENTATION_ROOT_DIR / "build",
+        DOCUMENTATION_ROOT_DIR / "doctrees",
+    ]
+
+    # Temporary directory for storing generated documentation source files.
+    DOCUMENTATION_SOURCE_DIR = DOCUMENTATION_ROOT_DIR / "source"
+
+    # Directory in which documentation templates are stored.
+    DOCUMENTATION_TEMPLATE_DIR = DOCUMENTATION_ROOT_DIR / "templates"
+
+    # Directory in which build artifacts are placed.
+    DISTRIBUTABLE_DIR = BASE_DIR / "dist"
+
+    # The file that contains package configuration for setuptools.
+    CONFIGFILE = BASE_DIR / "pyproject.toml"
+
+    # Directory in which badges are stored.
+    BADGE_FOLDER = BASE_DIR / "data" / "badges"
+
+    # Folder into which json for analyzing dependencies are placed.
+    TMP_DIR = BASE_DIR / "tmp"
+
+    # Folder in which mypy stores its cache.
+    MYPY_CACHE = BASE_DIR / ".mypy_cache"
+
+    # Temporary directory for build files.
+    BUILD_DIR = BASE_DIR / "build"
+
     # Directory for placing all reports.
-    REPORT_DIR = BASE_DIR / "report"
+    REPORT_DIR = DOCUMENTATION_HTML_DIR / "report"
 
     # Directory in which the report template can be found.
     REPORT_TEMPLATE_DIR = BASE_DIR / "data" / "report_template"
@@ -113,48 +155,6 @@ class Settings:
     # relevant ones are also shown to provide some context. The number of lines before
     # and after is specified here.
     REPORT_LINE_RANGE = 10
-
-    # Root directory for documentation.
-    DOCUMENTATION_ROOT_DIR = BASE_DIR / "docfiles"
-
-    # The directory in which the generated html documentation is stored.
-    DOCUMENTATION_HTML_DIR = BASE_DIR / "docs"
-
-    # Directories in the html output that can be deleted, because they are irrelevant.
-    DOCUMENTATION_HTML_DIR_EXCLUDE = [
-        DOCUMENTATION_HTML_DIR / ".doctrees",
-        DOCUMENTATION_HTML_DIR / "_sources",
-        DOCUMENTATION_ROOT_DIR / "build",
-        DOCUMENTATION_ROOT_DIR / "doctrees",
-    ]
-
-    # Temporary directory for storing generated documentation source files.
-    DOCUMENTATION_SOURCE_DIR = DOCUMENTATION_ROOT_DIR / "source"
-
-    # Directory in which documentation templates are stored.
-    DOCUMENTATION_TEMPLATE_DIR = DOCUMENTATION_ROOT_DIR / "templates"
-
-    # Directory in which build artifacts are placed.
-    DISTRIBUTABLE_DIR = BASE_DIR / "dist"
-
-    # The file that contains package configuration for setuptools.
-    CONFIGFILE = BASE_DIR / "pyproject.toml"
-
-    # Directory in which badges are stored.
-    BADGE_FOLDER = BASE_DIR / "data" / "badges"
-
-    # **********************************************
-    # *** This section specifies temporary files ***
-    # **********************************************
-
-    # Folder into which json for analyzing dependencies are placed.
-    TMP_DIR = BASE_DIR / "tmp"
-
-    # Folder in which mypy stores its cache.
-    MYPY_CACHE = BASE_DIR / ".mypy_cache"
-
-    # Temporary directory for build files.
-    BUILD_DIR = BASE_DIR / "build"
 
     # The file in which test coverage information is stored (for the coverage package).
     TEST_COVERAGE_FILE = BASE_DIR / ".coverage"
@@ -2857,39 +2857,12 @@ class Manager:
             else:
                 print("Invalid input. You need to answer with yes or no.\n")
 
-    def report(self, quiet: bool, keep:bool = False):
-        """
-        Exports the results to the given report.
 
-        Args:
-            quiet: Set to True for minimal output.
-            keep: Keep temporary files (True) or remove them (False).
-
-        Returns:
-            True, if all tool runs were successful and did not find any issues.
-            False, otherwise.
-        """
-
+    def _render_report(self, keep:bool = False):
         self._report = Report(
             self._settings, self._meta.get("name"), self._meta.get("version")
         )
-
-        if not quiet:
-            print("Checking dependencies...")
-        secresult = self._security.run()
-        if not quiet:
-            print("Styling code...")
-        styleresult = self._style.run()
-        if not quiet:
-            print("Checking types...")
-        typeresult = self._type.run()
-        if not quiet:
-            print("Running tests...")
-        testresult = self._test.run()
-        if not quiet:
-            print("Generating documentation...")
-        docresult = self._doc.run()
-
+        
         if "GENERATE_DOCUMENTATION" in self._settings.FEATURES:
             self._docinspector.load()
         if "RUN_TESTS" in self._settings.FEATURES:
@@ -2912,6 +2885,38 @@ class Manager:
             self._doc.clean()
             self._report.clean()
             self._type.clean()
+
+
+    def report(self, quiet: bool, keep:bool = False):
+        """
+        Exports the results to the given report.
+
+        Args:
+            quiet: Set to True for minimal output.
+            keep: Keep temporary files (True) or remove them (False).
+
+        Returns:
+            True, if all tool runs were successful and did not find any issues.
+            False, otherwise.
+        """
+
+        if not quiet:
+            print("Checking dependencies...")
+        secresult = self._security.run()
+        if not quiet:
+            print("Styling code...")
+        styleresult = self._style.run()
+        if not quiet:
+            print("Checking types...")
+        typeresult = self._type.run()
+        if not quiet:
+            print("Running tests...")
+        testresult = self._test.run()
+        if not quiet:
+            print("Generating documentation...")
+        docresult = self._doc.run()
+
+        self._render_report(keep)
 
         return (
             secresult
@@ -2939,7 +2944,7 @@ class Manager:
         self._version.bump(str(self._settings.CONFIGFILE), configregex)
 
         self.remove(quiet)
-        self.report(quiet, keep)
+        self.report(quiet, True)
 
         if "UPDATE_TESTCOVERAGE_BADGE" in self._settings.FEATURES:
             self._badge.coverage_badge(
@@ -2977,6 +2982,7 @@ class Manager:
         if not quiet:
             print("Update documentation...")
         self._doc.run()  # Generate documentation again to include recent badges.
+        self._render_report(keep)
 
         self._clean(quiet, keep)
 
