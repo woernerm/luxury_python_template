@@ -47,6 +47,10 @@ markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 shown above.
 - Removing temporary files and folders.
 
+## Supported Package Managers
+The luxury python template supports both pip and the super fast [uv](https://docs.astral.sh/uv/).
+If uv is installed, package.py will default to uv. Otherwise, pip is selected.
+
 ## Example Report
 The `package.py` tool that comes with the template can generate a single, 
 beautiful report that summarizes the results of the above-mentioned tools. Want an example?

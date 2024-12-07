@@ -234,7 +234,7 @@ def require(
         modulename, packagename, options = requirement
         packagename = modulename if packagename is None else packagename
         options = [] if options is None else options
-        run = run_uv if get_program_path("pip") is None else pyexecute
+        run = run_uv if has_uv() else pyexecute
 
         try:
             importlib.import_module(modulename)
@@ -327,6 +327,17 @@ def run_uv(args: list):
     from subprocess import run
     cmd = ["uv"] + args
     run(cmd, shell=True, check=True)
+
+
+def has_uv():
+    from subprocess import run, CalledProcessError, DEVNULL
+    cmd = ["uv"]
+    try:
+        # Run with no output to avoid cluttering the console.
+        run(cmd, shell=True, check=True, stdout=DEVNULL, stderr=DEVNULL)
+        return True
+    except (FileNotFoundError, CalledProcessError):
+        return False    
     
 
 def runner(cmd: list):
