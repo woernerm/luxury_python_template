@@ -234,13 +234,15 @@ def require(
         modulename, packagename, options = requirement
         packagename = modulename if packagename is None else packagename
         options = [] if options is None else options
+        haspip = get_program_path("pip") is not None
+        pkgmanager = ["pip", "install"] if haspip else ["uv", "pip", "install"]
 
         try:
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
                 pyexecute(
-                    ["pip", "install"]
+                    pkgmanager
                     + options
                     + [packagename]
                     + ["--disable-pip-version-check"]
@@ -303,6 +305,19 @@ def mkdirs_if_not_exists(path: Union[str, Path]):
         os.makedirs(str(path))
 
 
+def get_program_path(prog: str):
+    """ Return the path to the given program. 
+    
+    Args:
+        prog: The name of the program to find.
+    """
+    spec = importlib.util.find_spec(prog)
+    try:
+        return Path(spec.loader.path)  # type: ignore
+    except AttributeError:
+        return None
+    
+
 def runner(cmd: list):
     """
     Runs a module in a separate process.
@@ -315,8 +330,7 @@ def runner(cmd: list):
     # Create the list of arguments to provide to the executed module. For this, obtain
     # the file path for the module and set it as first argument, then copy the remaining
     # arguments as they are to the argument list.
-    spec = importlib.util.find_spec(cmd[0])
-    path = Path(spec.loader.path)  # type: ignore
+    path = get_program_path(cmd[0])  # type: ignore
     apppath = path.parents[0] / "__main__.py" if path.name == "__init__.py" else path
     arguments = list([str(apppath)])
     arguments += cmd[1:]
@@ -324,8 +338,8 @@ def runner(cmd: list):
     # Provide arguments to the module and run the module.
     sys.argv = arguments
 
-    # Run module and silence error messages as well as findings except for pip.
-    cxt = nullcontext() if cmd[0] in ["pip"] else redirect_stdout(io.StringIO())
+    # Run module and silence error messages as well as findings except for pip and uv.
+    cxt = nullcontext() if cmd[0] in ["pip", "uv"] else redirect_stdout(io.StringIO())
     # Silence error messages for tools that output findings on stderr although they
     # are part of normal operation. 
     cxt = redirect_stderr(io.StringIO()) if cmd[0] in ["mypy"] else cxt
