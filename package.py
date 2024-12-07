@@ -234,15 +234,14 @@ def require(
         modulename, packagename, options = requirement
         packagename = modulename if packagename is None else packagename
         options = [] if options is None else options
-        haspip = get_program_path("pip") is not None
-        pkgmanager = ["pip", "install"] if haspip else ["uv", "pip", "install"]
+        run = run_uv if get_program_path("pip") is None else pyexecute
 
         try:
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
-                pyexecute(
-                    pkgmanager
+                run(
+                    ["pip", "install"]
                     + options
                     + [packagename]
                     + ["--disable-pip-version-check"]
@@ -316,6 +315,18 @@ def get_program_path(prog: str):
         return Path(spec.loader.path)  # type: ignore
     except AttributeError:
         return None
+
+
+def run_uv(args: list):
+    """
+    Runs a command using uv package manager.
+
+    Args:
+        args: The command to run.
+    """
+    from subprocess import run
+    cmd = ["uv"] + args
+    run(cmd, shell=True, check=True)
     
 
 def runner(cmd: list):
