@@ -1,12 +1,11 @@
-name: GitHub Actions Demo
-run-name: ${{ github.actor }} is testing out GitHub Actions 
+name: Build and Release
 on: 
     push:
       branches:
         - main
-      tags-ignore:
-        - no_build
-
+      tags:
+        - '!no_build'
+      
 jobs:
     Build:
       name: Build and Release
