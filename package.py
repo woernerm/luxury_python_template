@@ -281,7 +281,10 @@ def remove_action_vars():
     
     No exception is raised if the file is not found.
     """
-    Path(os.getenv('GITHUB_ENV')).unlink(missing_ok=True)
+    try:
+        Path(os.getenv('GITHUB_ENV')).unlink(missing_ok=True)
+    except TypeError:
+        pass # Not running in github actions.
 
 
 def remove_if_exists(path: Union[Path, str]):
