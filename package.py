@@ -276,18 +276,7 @@ def write_action_vars(**kwargs):
 
     with open(filename, "a") as file:
         for key, value in kwargs.items():
-            file.write(f"{key}={value}\n")
-
-
-def remove_action_vars():
-    """ Removes the GITHUB_ENV file.
-    
-    No exception is raised if the file is not found.
-    """
-    try:
-        Path(os.getenv('GITHUB_ENV')).unlink(missing_ok=True)
-    except TypeError:
-        pass # Not running in github actions.
+            print(f"{key}={value}", file=file)
 
 
 def remove_if_exists(path: Union[Path, str]):
@@ -361,11 +350,10 @@ def run_uv(args: list) -> bool:
         args: The command to run.
     """
     from subprocess import run, CalledProcessError
-    args = [e for e in args if e != "--disable-pip-version-check"]
-    if not args:
-        raise ValueError("No uv arguments provided.")
+    cmd = ["uv"] + [e for e in args if e != "--disable-pip-version-check"]
+
     try:
-        run(["uv"] + args, shell=True, check=True)
+        run(cmd, shell=True, check=True)
         return True
     except CalledProcessError:
         return False
@@ -374,10 +362,10 @@ def run_uv(args: list) -> bool:
 def has_uv():
     """ Returns True, if uv package manager is available. False, otherwise. """
     from subprocess import run, CalledProcessError, DEVNULL
-    cmd = ["uv"]
+
     try:
         # Run with no output to avoid cluttering the console.
-        run(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL)
+        run(["uv", "version"], shell=True, check=True, stdout=DEVNULL, stderr=DEVNULL)
         return True
     except (FileNotFoundError, CalledProcessError):
         return False    
@@ -1444,10 +1432,6 @@ class CalVersion:
             write_action_vars(PACKAGE_BUILD_VERSION=self.version)
         except FileExistsError:
             pass
-
-    def clean(self):
-        """ Removes the github actions version file. """
-        remove_action_vars()
 
     def __str__(self) -> str:
         return str(self.version)
@@ -3112,7 +3096,6 @@ class Manager:
             self._doc.clean()
             self._security.clean()
             self._type.clean()
-            self._version.clean()
 
 
 if __name__ == "__main__":

@@ -10,6 +10,10 @@ jobs:
       if: ${{ !contains(github.event.head_commit.message, '[skip build]') }}
       name: Build and Release
       runs-on: ubuntu-latest
+
+      permissions: 
+        contents: write
+
       steps:
         - name: "Checkout repository"
           uses: actions/checkout@v4
@@ -35,12 +39,14 @@ jobs:
 
         - name: "Create Github Release"
           run: |
-            gh release create "$PACKAGE_BUILD_VERSION" \
+            gh release create "${{env.PACKAGE_BUILD_VERSION}}" \
               ./dist/*.tar.gz \
               ./dist/*.whl \
               --repo="$GITHUB_REPOSITORY" \
-              --title="$PACKAGE_BUILD_VERSION" \
+              --title="${{env.PACKAGE_BUILD_VERSION}}" \
               --generate-notes
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         - name: Push docs to gh-pages branch.
           run: |
