@@ -254,6 +254,36 @@ def require(
     return notinstalled
 
 
+def write_action_vars(**kwargs):
+    """ Writes the given variables to the GITHUB_ENV file.
+
+    The variable values can be of any type. They will be converted to strings before
+    writing them to the file.
+
+    Args:
+        kwargs: The variables to write to the actions file.
+
+    Raises:
+        FileExistsError: If the environment variable GITHUB_ENV is not set.
+    """
+    filename = os.getenv('GITHUB_ENV')
+
+    if filename is None:
+        raise FileExistsError("Environment variable GITHUB_ENV is not set.")
+
+    with open(filename, "a") as file:
+        for key, value in kwargs.items():
+            file.write(f"{key}={value}\n")
+
+
+def remove_action_vars():
+    """ Removes the GITHUB_ENV file.
+    
+    No exception is raised if the file is not found.
+    """
+    Path(os.getenv('GITHUB_ENV')).unlink(missing_ok=True)
+
+
 def remove_if_exists(path: Union[Path, str]):
     """
     Deletes a given file or folder, if it exists.
@@ -330,6 +360,7 @@ def run_uv(args: list):
 
 
 def has_uv():
+    """ Returns True, if uv package manager is available. False, otherwise. """
     from subprocess import run, CalledProcessError, DEVNULL
     cmd = ["uv"]
     try:
@@ -1393,8 +1424,18 @@ class CalVersion:
         with open(filename, "r") as f:
             buf = str(f.read())
             buf = re.sub(regex, r"\1 " + f"\"{self.version}\"", buf)
+
         with open(filename, "w") as f:
             f.write(buf)
+
+        try:
+            write_action_vars(PACKAGE_BUILD_VERSION=self.version)
+        except FileExistsError:
+            pass
+
+    def clean(self):
+        """ Removes the github actions version file. """
+        remove_action_vars()
 
     def __str__(self) -> str:
         return str(self.version)
@@ -3056,6 +3097,7 @@ class Manager:
             self._doc.clean()
             self._security.clean()
             self._type.clean()
+            self._version.clean()
 
 
 if __name__ == "__main__":
