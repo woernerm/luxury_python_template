@@ -358,7 +358,7 @@ def run_uv(args: list):
         args: The command to run.
     """
     from subprocess import run
-    cmd = ["uv"] + args
+    cmd = ["uv"] + [e for e in args if e != "--disable-pip-version-check"]
     run(cmd, shell=True, check=True)
 
 
@@ -368,7 +368,7 @@ def has_uv():
     cmd = ["uv"]
     try:
         # Run with no output to avoid cluttering the console.
-        run(cmd, shell=True, check=True, stdout=DEVNULL, stderr=DEVNULL)
+        run(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL)
         return True
     except (FileNotFoundError, CalledProcessError):
         return False    
