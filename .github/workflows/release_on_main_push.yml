@@ -41,7 +41,20 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="$PACKAGE_BUILD_VERSION" \
               --generate-notes
+
+        - name: Push docs to gh-pages branch.
+          run: |
+            if git show-ref --verify --quiet refs/heads/gh-pages; then
+              echo "gh-pages branch exists."
+            else
+              echo "gh-pages branch does not exist. Creating gh-pages branch."
+              git checkout --orphan gh-pages
+              git reset --hard
+            fi
+            git add docs/*
+            git push origin HEAD:gh-pages
   
         - name: Minimize uv cache
           run: uv cache prune --ci
        
+        
