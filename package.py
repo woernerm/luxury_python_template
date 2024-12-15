@@ -37,6 +37,7 @@ import os
 import re
 import runpy
 import shutil
+import logging
 import sys
 from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from datetime import datetime
@@ -241,12 +242,13 @@ def require(
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
-                run(
-                    ["pip", "install"]
-                    + options
-                    + [packagename]
+                cmd = (
+                    ["pip", "install"] 
+                    + options 
+                    + [packagename] 
                     + ["--disable-pip-version-check"]
                 )
+                run(cmd)
                 # Make sure that the running script finds the new module.
                 importlib.invalidate_caches()
             else:
@@ -359,9 +361,11 @@ def run_uv(args: list) -> bool:
         args: The command to run.
     """
     from subprocess import run, CalledProcessError
-    cmd = ["uv"] + [e for e in args if e != "--disable-pip-version-check"]
+    args = [e for e in args if e != "--disable-pip-version-check"]
+    if not args:
+        raise ValueError("No uv arguments provided.")
     try:
-        run(cmd, shell=True, check=True)
+        run(["uv"] + args, shell=True, check=True)
         return True
     except CalledProcessError:
         return False
