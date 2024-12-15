@@ -237,6 +237,7 @@ def require(
         run = run_uv if has_uv() else pyexecute
 
         try:
+            importlib.invalidate_caches()
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
