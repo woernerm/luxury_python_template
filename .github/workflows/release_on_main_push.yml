@@ -1,4 +1,5 @@
 name: Build and Release
+run-name: Build and Release
 on: 
     push:
       branches:
