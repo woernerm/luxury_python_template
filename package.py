@@ -351,16 +351,20 @@ def get_program_path(prog: str):
         return None
 
 
-def run_uv(args: list):
+def run_uv(args: list) -> bool:
     """
     Runs a command using uv package manager.
 
     Args:
         args: The command to run.
     """
-    from subprocess import run
+    from subprocess import run, CalledProcessError
     cmd = ["uv"] + [e for e in args if e != "--disable-pip-version-check"]
-    run(cmd, shell=True, check=True)
+    try:
+        run(cmd, shell=True, check=True)
+        return True
+    except CalledProcessError:
+        return False
 
 
 def has_uv():
@@ -2313,7 +2317,10 @@ class Build:
         self.remove()
 
         builddir = str(self._settings.DISTRIBUTABLE_DIR)
-        self._passed = not bool(pyexecute(["build", "-s", "-w", "-o", builddir]))
+        if has_uv():
+            self._passed = not bool(run_uv(["build", "-o", builddir]))
+        else:
+            self._passed = not bool(pyexecute(["build", "-s", "-w", "-o", builddir]))
         return self._passed
 
 
