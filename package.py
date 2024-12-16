@@ -1126,7 +1126,7 @@ class Badge:
         """
         filename = badgename.replace(" ", "_")
         badgefolder = os.path.normpath(self._settings.BADGE_FOLDER)
-        return f"{badgefolder}\\{filename}.svg"
+        return str(Path(badgefolder) / f"{filename}.svg")
 
     def _write(self, badgefile: str, data: str):
         """
@@ -1539,7 +1539,7 @@ class Documentation:
                 ]
             )
         )
-        (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").write_text("")
+        (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").touch()
         self._passed = step1result and step2result
         return self._passed
 
@@ -2979,6 +2979,12 @@ class Manager:
             quiet: Set to True for minimal output.
             keep: Keep temporary files (True) or remove them (False).
         """
+        TEST_COVERAGE = "test_coverage"
+        DOC_COVERAGE = "doc_coverage"
+        SECURITY = "vulnerabilities"
+        TEST_PASSED = "test_passed"
+        BUILD_PASSED = "build_passed"
+
         print(f"Setting version to {self._version}.")
         configregex = r"(version[ ]*=)[ ]*\"[^\n]*\""
         self._version.bump(str(self._settings.CONFIGFILE), configregex)
@@ -2986,43 +2992,63 @@ class Manager:
         self.remove(quiet)
         self.report(quiet, True)
 
+        totals = {}
+
         if "UPDATE_TESTCOVERAGE_BADGE" in self._settings.FEATURES:
+            totals[TEST_COVERAGE] = self._report.get_total(
+                self._settings.REPORT_SECTION_NAME_TEST
+            )
             self._badge.coverage_badge(
                 "test coverage",
-                self._report.get_total(self._settings.REPORT_SECTION_NAME_TEST),
+                totals[TEST_COVERAGE],
                 self._settings.TEST_COVERAGE_THRESHOLDS,
             )
         if "UPDATE_DOCCOVERAGE_BADGE" in self._settings.FEATURES:
+            totals[DOC_COVERAGE] = self._report.get_total(
+                self._settings.REPORT_SECTION_NAME_DOCUMENTATION
+            )
             self._badge.coverage_badge(
                 "doc coverage",
-                self._report.get_total(self._settings.REPORT_SECTION_NAME_DOCUMENTATION),
+                totals[DOC_COVERAGE],
                 self._settings.DOCUMENTATION_COVERAGE_THRESHOLDS,
             )
         if "UPDATE_SECURITY_BADGE" in self._settings.FEATURES:
+            totals[SECURITY] = self._report.get_total(
+                self._settings.REPORT_SECTION_NAME_SECURITY
+            )
             self._badge.issue_badge(
                 "vulnerabilities",
-                self._report.get_total(self._settings.REPORT_SECTION_NAME_SECURITY),
+                totals[SECURITY],
                 self._settings.SECURITY_ISSUES_THRESHOLDS,
             )
         if "UPDATE_TEST_BADGE" in self._settings.FEATURES:
-            self._badge.passfail_badge("test", self._test.ispassed())
+            totals[TEST_PASSED] = self._test.ispassed()
+            self._badge.passfail_badge("test", totals[TEST_PASSED])
+
         # For including the result in the build, assume that build was successful.
         # Otherwise, it will not be included in a non-existing (failed) build anyway.
         if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
             self._badge.passfail_badge("build", True)
+
         self._badge.write_absolute_readme()
 
         if not quiet:
             print("Building wheels...")
         self._build.run()
         if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
-            self._badge.passfail_badge("build", self._build.ispassed())
+            totals[BUILD_PASSED] = self._build.ispassed()
+            self._badge.passfail_badge("build", totals[BUILD_PASSED])
         self._badge.write_relative_readme()
 
         if not quiet:
             print("Update documentation...")
         self._doc.run()  # Generate documentation again to include recent badges.
         self._render_report(keep)
+
+        try:
+            write_action_vars(**{f"PACKAGE_{k.upper()}": v for k, v in totals.items()})
+        except FileExistsError:
+            pass
 
         self._clean(quiet, keep)
 

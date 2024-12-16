@@ -37,28 +37,33 @@ jobs:
         - name: Build
           run: python package.py build
 
-        - name: "Create Github Release"
+        - name: Create Github Release
           run: |
-            gh release create "${{env.PACKAGE_BUILD_VERSION}}" \
+            gh release create "$PACKAGE_BUILD_VERSION" \
               ./dist/*.tar.gz \
               ./dist/*.whl \
               --repo="$GITHUB_REPOSITORY" \
-              --title="${{env.PACKAGE_BUILD_VERSION}}" \
+              --title="$PACKAGE_BUILD_VERSION" \
               --generate-notes
           env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-        - name: Push docs to gh-pages branch.
+        - name: Push docs to repository.
           run: |
-            if git show-ref --verify --quiet refs/heads/gh-pages; then
-              echo "gh-pages branch exists."
-            else
-              echo "gh-pages branch does not exist. Creating gh-pages branch."
-              git checkout --orphan gh-pages
-              git reset --hard
-            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add docs/*
-            git push origin HEAD:gh-pages
+            git add -f docs/.nojekyll
+            git add -f data/badges/\*.svg
+            git add pyproject.toml
+            git commit -m "[skip build] Commit docs of version $PACKAGE_BUILD_VERSION." \
+              -m "Metrics:" \
+              -m "  - Build: $PACKAGE_BUILD_PASSED" \
+              -m "  - Test: $PACKAGE_TEST_PASSED" \
+              -m "  - Test Coverage: $PACKAGE_TEST_COVERAGE %" \
+              -m "  - Doc Coverage: $PACKAGE_DOC_COVERAGE %" \
+              -m "  - Vulnerabilities: $PACKAGE_VULNERABILITIES"
+            git push origin
   
         - name: Minimize uv cache
           run: uv cache prune --ci
