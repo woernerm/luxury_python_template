@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "example_package_YOUR_USERNAME_HERE"
-version = "23.12.0"
+version = "25.4.6"
 authors = [
   { name="Example Author", email="author@example.com" },
 ]
 description = "Place your description here."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",

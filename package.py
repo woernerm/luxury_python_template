@@ -37,7 +37,6 @@ import os
 import re
 import runpy
 import shutil
-import logging
 import sys
 from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from datetime import datetime
@@ -70,6 +69,9 @@ class Settings:
         "UPDATE_BUILD_BADGE",
     ]
 
+    # Unittest framework to use. Can be "unittest" or "pytest".
+    TEST_FRAMEWORK = "pytest"
+
     # **********************************************
     # *** This section specifies temporary files ***
     # **********************************************
@@ -79,6 +81,9 @@ class Settings:
 
     # Directory where the package source code can be found.
     SRC_DIR = BASE_DIR / "src"
+
+    # Directory where the tests can be found.
+    TEST_DIR = BASE_DIR / "tests"
 
     # Patterns to omit for coverage.
     COVERAGE_OMIT_PATTERN = "*/test*"
@@ -708,7 +713,10 @@ class Report:
                 raise ValueError("Invalid marking type.")
 
             for linenumber in inlines:
-                if linenumber > len(self.lines) or linenumber < 1:
+                if linenumber == 0:
+                    continue
+
+                if linenumber > len(self.lines) or linenumber < 0:
                     raise ValueError(
                         "Invalid line number for "
                         + self.filepath
@@ -1096,11 +1104,18 @@ class Badge:
             "UPDATE_SECURITY_BADGE",
             "UPDATE_BUILD_BADGE",
         }
+
+        requirements = []
+
+        # Get Python version and check if it is >= 3.8.
+        python_version = sys.version_info
+        if python_version >= (3, 13):
+            requirements.append(("imghdr", "standard-imghdr", None))
+
         if badges & set(settings.FEATURES):
-            return [
-                ("pybadges", None, None),
-            ]
-        return []
+            requirements.append(("pybadges", None, None))
+
+        return requirements
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2024,7 +2039,6 @@ class SecurityCheck:
                     maxline + self._settings.REPORT_LINE_RANGE,
                 )
                 report.add(filename, file)
-                print("result entry: ", entry)
 
                 summary = (
                     "<b>"
@@ -2082,11 +2096,14 @@ class Test:
 
     @classmethod
     def get_requirements(cls, settings: Settings):
+        requirements = []
+    
         if "RUN_TESTS" in settings.FEATURES:
-            return [
-                ("coverage", None, None),
-            ]
-        return []
+            requirements.append(("coverage", None, None))
+
+            if settings.TEST_FRAMEWORK.lower() == "pytest":
+                requirements.append(("pytest", None, None))
+        return requirements
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2140,6 +2157,7 @@ class Test:
         cwd = Path().cwd()
         srcdir_abs = self._settings.SRC_DIR.absolute()
         srcdir = srcdir_abs.relative_to(cwd)
+        testdir = self._settings.TEST_DIR.relative_to(cwd)
 
         self._passed = not bool(
             pyexecute(
@@ -2149,8 +2167,8 @@ class Test:
                     "-m",
                     f"--source={srcdir}",
                     f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
-                    "unittest",
-                    "-q",
+                    f"{self._settings.TEST_FRAMEWORK}",
+                    f"{testdir}"
                 ]
             )
         )
