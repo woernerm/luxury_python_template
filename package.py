@@ -168,6 +168,9 @@ class Settings:
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
 
+    # The file that contains the requirements.
+    REQUIREMENTS_FILE = TMP_DIR / "requirements.md"
+
     # The file in which bandit's results are stored (for parsing by package.py).
     SECURITY_BANDIT_JSON = TMP_DIR / "bandit.json"
 
