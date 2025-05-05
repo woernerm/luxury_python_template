@@ -28,5 +28,9 @@ dependencies = [
 "Bug Tracker" = "https://github.com/MY_USER/MY_REPO/issues"
 
 [tool.ruff]
-fix = false # Apply safe fixes to resolve lint violations.
+fix = true # Apply safe fixes to resolve lint violations.
 unsafe-fixes = false # Apply unsafe fixes to resolve lint violations.
+
+[tool.ruff.lint]
+select = []
+ignore = []

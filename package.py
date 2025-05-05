@@ -61,7 +61,7 @@ class Settings:
         "CHECK_SECURITY",
         "RUN_TESTS",
         "CHECK_STYLE",
-        "CHECK_TYPES"
+        "CHECK_TYPES",
         "UPDATE_PASSFAIL_BADGE",
         "UPDATE_TESTCOVERAGE_BADGE",
         "UPDATE_TEST_BADGE",
@@ -955,14 +955,18 @@ class Issue:
         message: str, 
         description: str,
         help_url: str = None,
-        lines: Optional[List[int]] = None
+        lines: Optional[List[int]] = None,
+        confidence: Optional[str] = None,
+        severity: Optional[str] = None,
     ):
         self.filename = Path(filename).absolute() if filename else None
         self.lines = [lines] if isinstance(lines, int) else lines
-        self.message = message
-        self.description = description
-        self.url = help_url
+        self.message = message.strip() if message else None
+        self.description = description.strip() if description else None
+        self.url = help_url.strip() if help_url else None
         self.code = code
+        self.confidence = confidence.strip() if confidence else None
+        self.severity = severity.strip() if severity else None
 
     @classmethod
     def from_ruff_json(cls, filename: Union[str, Path]) -> List[Self]:
@@ -991,6 +995,40 @@ class Issue:
         return output
     
     @classmethod
+    def from_bandit_json(cls, filename: Union[str, Path]) -> List[Self]:
+        output = []
+
+        if not Path(filename).exists():
+            return output
+        
+        with open(filename, "r") as f:
+            data = json.load(f)
+            results = data.get("results", [])
+
+            for issue in results:
+                line_range = issue.get("line_range", [])
+                start = min(line_range)
+                end = max(line_range)
+                lines = range(start, end+1) if start and end else None
+
+                msg = issue.get("issue_text", None)
+                test_name = issue.get("test_name", None)
+                sep = ":" if test_name else ""
+
+                obj = cls(
+                    filename=issue.get("filename", None),
+                    code=issue.get("test_id", None),
+                    message=msg,
+                    description=f"{test_name}{sep} {msg}",
+                    help_url=issue.get("more_info", None),
+                    lines=lines,
+                    severity=issue.get("issue_severity", None),
+                    confidence=issue.get("issue_confidence", None),
+                )
+                output.append(obj)
+        return output
+    
+    @classmethod
     def report(self, issues: List[Self], section_name: str, report: Report):
         """
         Exports the given issues to the given report.
@@ -1004,6 +1042,10 @@ class Issue:
         for issue in issues:
             group_by_file[issue.filename].append(issue)
    
+        if not group_by_file:
+            report.add(section_name, Report.List())
+            return # Nothing to report.
+
         for filename, file_issues in group_by_file.items():
             name = Path(filename).absolute().relative_to(Path().cwd())
             entries = Report.List(str(name))
@@ -1014,8 +1056,15 @@ class Issue:
                 file.mark(lines, file.COLOR_BAD)
                 file.set_mark_name(file.COLOR_BAD, "Finding")
                 report.add(filename, file)
+
+                confidence = f"<b>Confidence</b>: {issue.confidence}<br />"
+                severity = f"<b>Severity</b>: {issue.severity}<br />"
+                confidence_str = confidence if issue.confidence else ""
+                severity_str = severity if issue.severity else ""
+    
                 details = (
                     f"<b>Code</b>: {issue.code}<br />"
+                    f"{confidence_str}{severity_str}"
                     f"<b>Line</b>: {min(lines)}<br />"
                     f'<b>File</b>: <a href="{file.outputpath}#{min(lines)}">{name}</a>'
                     f'<br /><b>Info</b>: <a href="{issue.url}">{issue.url}</a><br />'
@@ -1714,20 +1763,22 @@ class StyleCheck:
             return
         
         self.clean()
-        self.checkfile = str(self._settings.STYLE_REPORT_JSON)
-        mkdirs_if_not_exists(self._settings.REPORT_DIR)
+        settings = self._settings
+        self.checkfile = str(settings.STYLE_REPORT_JSON)
+        mkdirs_if_not_exists(settings.REPORT_DIR)
 
-        pyexecute(["ruff", "format", self._settings.SRC_DIR, self._settings.TEST_DIR])
+        pyexecute(["ruff", "format", "-q", settings.SRC_DIR, settings.TEST_DIR])
         self._passed = not bool(
             pyexecute(
                 [
                     "ruff",
                     "check",
+                    "-q",
                     "--output-format=json",
                     "--output-file",
                     self.checkfile,
-                    self._settings.SRC_DIR,
-                    self._settings.TEST_DIR,
+                    settings.SRC_DIR,
+                    settings.TEST_DIR,
                 ]
             )
         )
@@ -1740,8 +1791,7 @@ class StyleCheck:
             report: The report to export the results to.
         """
         if not self.active:
-            print(f"Skipping style check report.")
-            return
+            return # Nothing to do.
         
         issues = Issue.from_ruff_json(self.checkfile)
         Issue.report(issues, self._settings.REPORT_SECTION_NAME_STYLE, report)
@@ -1922,16 +1972,6 @@ class SecurityCheck:
     generated to document any issues found.
     """
 
-    KEY_BANDIT_RESULTS = "results"
-    KEY_BANDIT_TESTNAME = "test_name"
-    KEY_BANDIT_DESCRIPTION = "issue_text"
-    KEY_BANDIT_FILENAME = "filename"
-    KEY_BANDIT_CONFIDENCE = "issue_confidence"
-    KEY_BANDIT_SEVERITY = "issue_severity"
-    KEY_BANDIT_TESTID = "test_id"
-    KEY_BANDIT_INFO = "more_info"
-    KEY_BANDIT_LINES = "line_range"
-
     @classmethod
     def get_requirements(cls, settings: Settings):
         if "CHECK_SECURITY" in settings.FEATURES:
@@ -2034,74 +2074,12 @@ class SecurityCheck:
         Args:
             report: The report to export the results to.
         """
+
         if not self.active:
-            print(f"Skipping security check report.")
-            return
-
-        # Check whether report fole exists.
-        if not os.path.isfile(str(self.banditfilename)):
-            List = Report.List()
-            List.add("Analysis failed.", "")
-            report.add(self._settings.REPORT_SECTION_NAME_SECURITY, List)
-            return
-
-        # Generate security report.
-        print("Generating security report")
-        with open(self.banditfilename, "r") as f:
-            data = json.load(f)
-            security = Report.List()
-
-            if self.KEY_BANDIT_RESULTS not in data:
-                data[self.KEY_BANDIT_RESULTS] = list()
-
-            for entry in data[self.KEY_BANDIT_RESULTS]:
-                filename = str(entry[self.KEY_BANDIT_FILENAME])
-                relfilename = str(Path(filename).absolute().relative_to(Path().cwd()))
-                file = report.File(relfilename)
-                minline = min(entry[self.KEY_BANDIT_LINES])
-                maxline = max(entry[self.KEY_BANDIT_LINES])
-                file.mark(entry[self.KEY_BANDIT_LINES], file.COLOR_BAD)
-                file.set_mark_name(file.COLOR_BAD, "Finding")
-                file.range = (
-                    minline - self._settings.REPORT_LINE_RANGE,
-                    maxline + self._settings.REPORT_LINE_RANGE,
-                )
-                report.add(filename, file)
-
-                summary = (
-                    "<b>"
-                    + entry[self.KEY_BANDIT_TESTNAME]
-                    + "</b>: "
-                    + entry[self.KEY_BANDIT_DESCRIPTION]
-                )
-                detail = (
-                    "<b>Test ID</b>: "
-                    + str(entry[self.KEY_BANDIT_TESTID])
-                    + "<br />"
-                    + "<b>Severity</b>: "
-                    + str(entry[self.KEY_BANDIT_SEVERITY])
-                    + "<br />"
-                    + "<b>Confidence</b>: "
-                    + str(entry[self.KEY_BANDIT_CONFIDENCE])
-                    + "<br />"
-                    + "<b>File</b>: "
-                    + f'<a href="{file.outputpath}#{minline}">'
-                    + relfilename
-                    + "</a>"
-                    + "<br />"
-                    + "<b>Line(s)</b>: "
-                    + ", ".join([str(e) for e in entry[self.KEY_BANDIT_LINES]])
-                    + "<br />"
-                    + '<b>More Information</b>: <a href="'
-                    + str(entry[self.KEY_BANDIT_INFO])
-                    + '">'
-                    + str(entry[self.KEY_BANDIT_INFO])
-                    + "</a>"
-                )
-
-                security.add(summary, detail)
-
-            report.add(self._settings.REPORT_SECTION_NAME_SECURITY, security)
+            return # Nothing to do.
+        
+        issues = Issue.from_bandit_json(self.banditfilename)
+        Issue.report(issues, self._settings.REPORT_SECTION_NAME_SECURITY, report)
 
 
 class Test:

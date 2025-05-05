@@ -30,12 +30,10 @@ python package.py build
 
 This includes:
 - Installing all needed dependencies.
-- Sorting import statements alphabetically with [isort](https://pycqa.github.io/isort/).
-- Styling your code [Black](https://github.com/psf/black).
+- Formatting and linting your code with [ruff](https://docs.astral.sh/ruff/).
 - Static type analysis with [MyPy](https://github.com/python/mypy).
-- Checking for residual style errors with [Flake8](https://github.com/PyCQA/flake8).
 - Checking for security issues with [Bandit](https://github.com/PyCQA/bandit).
-- Running tests with [Unittest](https://docs.python.org/3/library/unittest.html) and 
+- Running tests with [Pytest](https://docs.python.org/3/library/unittest.html) and 
 evaluating test coverage with [Coverage.py](https://github.com/nedbat/coveragepy)
 - Generating documentation with [Sphinx](https://www.sphinx-doc.org/en/master/) and 
 markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
@@ -44,7 +42,7 @@ markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 - Building wheel files and incrementing the version number according to 
 [calendar versioning](https://calver.org/).
 - Generating badges with the most important metrics for your repository like the ones 
-shown above.
+shown above using [pybadges](https://github.com/google/pybadges)
 - Removing temporary files and folders.
 
 ## Supported Package Managers

@@ -6,6 +6,7 @@ from collections import defaultdict
 RE_WORD_BOUNDARY = re.compile(r"([^_])(_)(.)")
 GROUP_WORD_BOUNDARY = 2
 
+
 def to_sentence(snake_str: str) -> str:
     """Convert snake_case string to a sentence."""
     # Replace underscores with spaces and capitalize the first letter
@@ -19,13 +20,12 @@ def to_sentence(snake_str: str) -> str:
 
 
 def get_requirement(item):
-    """ Convert a test item to a requirement. """
+    """Convert a test item to a requirement."""
     return (
-        item.instance._testMethodDoc
-        or item.instance.__doc__ 
-        or to_sentence(item.name)
+        item.instance._testMethodDoc or item.instance.__doc__ or to_sentence(item.name)
     )
-     
+
+
 def pytest_collection_modifyitems(session, config, items):
     packagemod = importlib.import_module("package", "..")
     meta = packagemod.Meta("pyproject.toml")
@@ -54,12 +54,15 @@ def pytest_collection_modifyitems(session, config, items):
 
         for modname, content in requirements.items():
             modname = (
-                str(modname).removeprefix(f"{mod_prefix}.")
-                .replace("test_", "").replace(".", " ").capitalize()
+                str(modname)
+                .removeprefix(f"{mod_prefix}.")
+                .replace("test_", "")
+                .replace(".", " ")
+                .capitalize()
             )
             f.write(f"### {modname}\n")
             for item in content:
                 _, _, pymod = item.location
-                text = get_requirement(item)            
+                text = get_requirement(item)
                 f.write(f"#### {pymod}\n\n")
-                f.write(f"{text}\n\n")         
+                f.write(f"{text}\n\n")
