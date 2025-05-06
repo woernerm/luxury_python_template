@@ -39,9 +39,10 @@ import runpy
 import shutil
 import sys
 from contextlib import nullcontext, redirect_stdout, redirect_stderr
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Self
 from urllib.parse import quote
 
 
@@ -60,7 +61,7 @@ class Settings:
         "CHECK_SECURITY",
         "RUN_TESTS",
         "CHECK_STYLE",
-        "CHECK_TYPES"
+        "CHECK_TYPES",
         "UPDATE_PASSFAIL_BADGE",
         "UPDATE_TESTCOVERAGE_BADGE",
         "UPDATE_TEST_BADGE",
@@ -609,7 +610,7 @@ class Report:
         COLOR_NEUTRAL = "neutral"
         COLOR_NONE = "none"
 
-        def __init__(self, filepath: str) -> None:
+        def __init__(self, filepath: str, report: Optional = None) -> None:
             """
             Initializes the object with the path to the file that shall be shown.
 
@@ -622,6 +623,7 @@ class Report:
             self.outputpath = ""
             self.colorname = {}
             self.lines = []
+            self.report = report
             self.__range = tuple()
 
             with open(filepath, "r") as f:
@@ -702,7 +704,7 @@ class Report:
                 lines: The lines to highlight.
                 marking: The color category to mark the lines with.
             """
-            inlines = [lines] if isinstance(lines, int) else lines
+            inlines = [lines] if isinstance(lines, int) else list(lines)
 
             if not inlines:
                 return
@@ -732,6 +734,12 @@ class Report:
 
                 # First line starts with 1 and not 0.
                 self.lines[linenumber - 1][self.COLOR] = marking
+            
+            if self.report:
+                self.range = (
+                    min(lines) - self.report._settings.REPORT_LINE_RANGE,
+                    max(lines) + self.report._settings.REPORT_LINE_RANGE,
+                )
 
         def identifier(self):
             """
@@ -938,6 +946,132 @@ class Report:
         Removes temporary files used for the report.
         """
         remove_if_exists(self._settings.TMP_DIR)
+
+class Issue:
+    def __init__(
+        self, 
+        filename: str, 
+        code: str, 
+        message: str, 
+        description: str,
+        help_url: str = None,
+        lines: Optional[List[int]] = None,
+        confidence: Optional[str] = None,
+        severity: Optional[str] = None,
+    ):
+        self.filename = Path(filename).absolute() if filename else None
+        self.lines = [lines] if isinstance(lines, int) else lines
+        self.message = message.strip() if message else None
+        self.description = description.strip() if description else None
+        self.url = help_url.strip() if help_url else None
+        self.code = code
+        self.confidence = confidence.strip() if confidence else None
+        self.severity = severity.strip() if severity else None
+
+    @classmethod
+    def from_ruff_json(cls, filename: Union[str, Path]) -> List[Self]:
+        output = []
+
+        if not Path(filename).exists():
+            return output
+        
+        with open(filename, "r") as f:
+            data = json.load(f)
+
+            for issue in data:
+                start = issue.get("location", {}).get("row", None)
+                end = issue.get("end_location", {}).get("row", None)
+                lines = range(start, end+1) if start and end else None
+
+                obj = cls(
+                    filename=issue.get("filename", None),
+                    code=issue.get("code", None),
+                    message=issue["message"],
+                    description=issue.get("fix", {}).get("message", None),
+                    help_url=issue.get("url", None),
+                    lines=lines
+                )
+                output.append(obj)
+        return output
+    
+    @classmethod
+    def from_bandit_json(cls, filename: Union[str, Path]) -> List[Self]:
+        output = []
+
+        if not Path(filename).exists():
+            return output
+        
+        with open(filename, "r") as f:
+            data = json.load(f)
+            results = data.get("results", [])
+
+            for issue in results:
+                line_range = issue.get("line_range", [])
+                start = min(line_range)
+                end = max(line_range)
+                lines = range(start, end+1) if start and end else None
+
+                msg = issue.get("issue_text", None)
+                test_name = issue.get("test_name", None)
+                sep = ":" if test_name else ""
+
+                obj = cls(
+                    filename=issue.get("filename", None),
+                    code=issue.get("test_id", None),
+                    message=msg,
+                    description=f"{test_name}{sep} {msg}",
+                    help_url=issue.get("more_info", None),
+                    lines=lines,
+                    severity=issue.get("issue_severity", None),
+                    confidence=issue.get("issue_confidence", None),
+                )
+                output.append(obj)
+        return output
+    
+    @classmethod
+    def report(self, issues: List[Self], section_name: str, report: Report):
+        """
+        Exports the given issues to the given report.
+
+        Args:
+            issues: The issues to export.
+            section_name: The name of the section to place the issues in.
+            report: The report to export the issues to.
+        """     
+        group_by_file = defaultdict(list)
+        for issue in issues:
+            group_by_file[issue.filename].append(issue)
+   
+        if not group_by_file:
+            report.add(section_name, Report.List())
+            return # Nothing to report.
+
+        for filename, file_issues in group_by_file.items():
+            name = Path(filename).absolute().relative_to(Path().cwd())
+            entries = Report.List(str(name))
+            issue: Self
+            for issue in file_issues:
+                file = report.File(filename, report)
+                lines = list(issue.lines)
+                file.mark(lines, file.COLOR_BAD)
+                file.set_mark_name(file.COLOR_BAD, "Finding")
+                report.add(filename, file)
+
+                confidence = f"<b>Confidence</b>: {issue.confidence}<br />"
+                severity = f"<b>Severity</b>: {issue.severity}<br />"
+                confidence_str = confidence if issue.confidence else ""
+                severity_str = severity if issue.severity else ""
+    
+                details = (
+                    f"<b>Code</b>: {issue.code}<br />"
+                    f"{confidence_str}{severity_str}"
+                    f"<b>Line</b>: {min(lines)}<br />"
+                    f'<b>File</b>: <a href="{file.outputpath}#{min(lines)}">{name}</a>'
+                    f'<br /><b>Info</b>: <a href="{issue.url}">{issue.url}</a><br />'
+                    f'<br />{issue.description}'
+                )
+                entries.add(issue.message, details)
+            report.add(section_name, entries)
 
 
 class Meta:
@@ -1572,20 +1706,11 @@ class StyleCheck:
     any issues found.
     """
 
-    KEY_CODE = "code"
-    KEY_LINE = "line_number"
-    KEY_COLUMN = "column_number"
-    KEY_DESCRIPTION = "text"
-    KEY_FILENAME = "filename"
-
     @classmethod
     def get_requirements(cls, settings: Settings):
         if "CHECK_STYLE" in settings.FEATURES:
             return [
-                ("flake8", None, None),
-                ("flake8_json_reporter", "flake8-json", None),
-                ("isort", None, None),
-                ("black", None, None),
+                ("ruff", None, None)
             ]
         return []
 
@@ -1638,88 +1763,38 @@ class StyleCheck:
             return
         
         self.clean()
-        self.flakefile = str(self._settings.STYLE_REPORT_JSON)
+        settings = self._settings
+        self.checkfile = str(settings.STYLE_REPORT_JSON)
+        mkdirs_if_not_exists(settings.REPORT_DIR)
 
-        pyexecute(["isort", "--quiet", str(self._settings.SRC_DIR)])
-        pyexecute(["black", "--quiet", str(self._settings.SRC_DIR)])
-
-        mkdirs_if_not_exists(self._settings.REPORT_DIR)
-        # Flake8 configuration is done as recommended by the black documentation as
-        # found here:
-        # https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html
+        pyexecute(["ruff", "format", "-q", settings.SRC_DIR, settings.TEST_DIR])
         self._passed = not bool(
             pyexecute(
                 [
-                    "flake8",
-                    "--format=json",
-                    "--max-line-length",
-                    "88",
-                    "--select",
-                    "C,E,F,W,B,B950",
-                    "--extend-ignore",
-                    "E203,E501",
+                    "ruff",
+                    "check",
+                    "-q",
+                    "--output-format=json",
                     "--output-file",
-                    self.flakefile,
-                    str(self._settings.SRC_DIR),
+                    self.checkfile,
+                    settings.SRC_DIR,
+                    settings.TEST_DIR,
                 ]
             )
         )
         return self._passed
 
     def report(self, report: Report):
-        """
-        Exports the results to the given report.
+        """ Exports the results to the given report.
 
         Args:
             report: The report to export the results to.
         """
         if not self.active:
-            print(f"Skipping style check report.")
-            return
+            return # Nothing to do.
         
-        if not file_has_content(self.flakefile):
-            report.add(self._settings.REPORT_SECTION_NAME_STYLE, Report.List())
-            return # Nothing to report.
-
-        data = dict()
-        with open(self.flakefile, "r") as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                entries =  Report.List()
-                entries.add("Could not decode flake8 json file.", "")
-                report.add(self._settings.REPORT_SECTION_NAME_STYLE, entries)
-
-        for filename, issues in data.items():
-            name = Path(filename).absolute().relative_to(Path().cwd())
-            List = Report.List(str(name))
-            for issue in issues:
-                file = report.File(filename)
-                file.mark([issue[self.KEY_LINE]], file.COLOR_BAD)
-                file.set_mark_name(file.COLOR_BAD, "Finding")
-                file.range = (
-                    issue[self.KEY_LINE] - self._settings.REPORT_LINE_RANGE,
-                    issue[self.KEY_LINE] + self._settings.REPORT_LINE_RANGE,
-                )
-                report.add(filename, file)
-                summary = issue[self.KEY_DESCRIPTION]
-                details = (
-                    "<b>Code</b>: "
-                    + str(issue[self.KEY_CODE])
-                    + "<br />"
-                    + "<b>Line</b>: "
-                    + str(issue[self.KEY_LINE])
-                    + "<br />"
-                    + "<b>Column</b>: "
-                    + str(issue[self.KEY_COLUMN])
-                    + "<br />"
-                    + "<b>File</b>: "
-                    + f'<a href="{file.outputpath}#{issue[self.KEY_LINE]}">'
-                    + str(name)
-                    + "</a>"
-                )
-                List.add(summary, details)
-            report.add(self._settings.REPORT_SECTION_NAME_STYLE, List)
+        issues = Issue.from_ruff_json(self.checkfile)
+        Issue.report(issues, self._settings.REPORT_SECTION_NAME_STYLE, report)
 
 
 class TypeCheck:
@@ -1897,16 +1972,6 @@ class SecurityCheck:
     generated to document any issues found.
     """
 
-    KEY_BANDIT_RESULTS = "results"
-    KEY_BANDIT_TESTNAME = "test_name"
-    KEY_BANDIT_DESCRIPTION = "issue_text"
-    KEY_BANDIT_FILENAME = "filename"
-    KEY_BANDIT_CONFIDENCE = "issue_confidence"
-    KEY_BANDIT_SEVERITY = "issue_severity"
-    KEY_BANDIT_TESTID = "test_id"
-    KEY_BANDIT_INFO = "more_info"
-    KEY_BANDIT_LINES = "line_range"
-
     @classmethod
     def get_requirements(cls, settings: Settings):
         if "CHECK_SECURITY" in settings.FEATURES:
@@ -2009,74 +2074,12 @@ class SecurityCheck:
         Args:
             report: The report to export the results to.
         """
+
         if not self.active:
-            print(f"Skipping security check report.")
-            return
-
-        # Check whether report fole exists.
-        if not os.path.isfile(str(self.banditfilename)):
-            List = Report.List()
-            List.add("Analysis failed.", "")
-            report.add(self._settings.REPORT_SECTION_NAME_SECURITY, List)
-            return
-
-        # Generate security report.
-        print("Generating security report")
-        with open(self.banditfilename, "r") as f:
-            data = json.load(f)
-            security = Report.List()
-
-            if self.KEY_BANDIT_RESULTS not in data:
-                data[self.KEY_BANDIT_RESULTS] = list()
-
-            for entry in data[self.KEY_BANDIT_RESULTS]:
-                filename = str(entry[self.KEY_BANDIT_FILENAME])
-                relfilename = str(Path(filename).absolute().relative_to(Path().cwd()))
-                file = report.File(relfilename)
-                minline = min(entry[self.KEY_BANDIT_LINES])
-                maxline = max(entry[self.KEY_BANDIT_LINES])
-                file.mark(entry[self.KEY_BANDIT_LINES], file.COLOR_BAD)
-                file.set_mark_name(file.COLOR_BAD, "Finding")
-                file.range = (
-                    minline - self._settings.REPORT_LINE_RANGE,
-                    maxline + self._settings.REPORT_LINE_RANGE,
-                )
-                report.add(filename, file)
-
-                summary = (
-                    "<b>"
-                    + entry[self.KEY_BANDIT_TESTNAME]
-                    + "</b>: "
-                    + entry[self.KEY_BANDIT_DESCRIPTION]
-                )
-                detail = (
-                    "<b>Test ID</b>: "
-                    + str(entry[self.KEY_BANDIT_TESTID])
-                    + "<br />"
-                    + "<b>Severity</b>: "
-                    + str(entry[self.KEY_BANDIT_SEVERITY])
-                    + "<br />"
-                    + "<b>Confidence</b>: "
-                    + str(entry[self.KEY_BANDIT_CONFIDENCE])
-                    + "<br />"
-                    + "<b>File</b>: "
-                    + f'<a href="{file.outputpath}#{minline}">'
-                    + relfilename
-                    + "</a>"
-                    + "<br />"
-                    + "<b>Line(s)</b>: "
-                    + ", ".join([str(e) for e in entry[self.KEY_BANDIT_LINES]])
-                    + "<br />"
-                    + '<b>More Information</b>: <a href="'
-                    + str(entry[self.KEY_BANDIT_INFO])
-                    + '">'
-                    + str(entry[self.KEY_BANDIT_INFO])
-                    + "</a>"
-                )
-
-                security.add(summary, detail)
-
-            report.add(self._settings.REPORT_SECTION_NAME_SECURITY, security)
+            return # Nothing to do.
+        
+        issues = Issue.from_bandit_json(self.banditfilename)
+        Issue.report(issues, self._settings.REPORT_SECTION_NAME_SECURITY, report)
 
 
 class Test:
