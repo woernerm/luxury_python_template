@@ -30,7 +30,3 @@ dependencies = [
 [tool.ruff]
 fix = true # Apply safe fixes to resolve lint violations.
 unsafe-fixes = false # Apply unsafe fixes to resolve lint violations.
-
-[tool.ruff.lint]
-select = []
-ignore = []
