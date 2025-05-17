@@ -987,7 +987,7 @@ class Issue:
                     filename=issue.get("filename", None),
                     code=issue.get("code", None),
                     message=issue["message"],
-                    description=issue.get("fix", {}).get("message", None),
+                    description=(issue.get("fix", {}) or {}).get("message", None),
                     help_url=issue.get("url", None),
                     lines=lines
                 )
@@ -1068,7 +1068,7 @@ class Issue:
                     f"<b>Line</b>: {min(lines)}<br />"
                     f'<b>File</b>: <a href="{file.outputpath}#{min(lines)}">{name}</a>'
                     f'<br /><b>Info</b>: <a href="{issue.url}">{issue.url}</a><br />'
-                    f'<br />{issue.description}'
+                    f'<br />{issue.description or issue.message}'
                 )
                 entries.add(issue.message, details)
             report.add(section_name, entries)
