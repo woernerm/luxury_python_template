@@ -3011,7 +3011,11 @@ class Manager:
 
         print(f"Setting version to {self._version}.")
         configregex = r"(version[ ]*=)[ ]*\"[^\n]*\""
+        initregex = r'(__version__[ ]*=)[ ]*"([^"]+)"'
+
         self._version.bump(str(self._settings.CONFIGFILE), configregex)
+        for init_file in self._settings.SRC_DIR.glob("*/__init__.py"):
+            self._version.bump(str(init_file), initregex)
 
         self.remove(quiet)
         self.report(quiet, True)
