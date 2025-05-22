@@ -1,5 +1,5 @@
 <p align="center">
-    <img style="width: 10em; border-radius:20%" src="data/readme/logo.jpg">
+    <img src="data/readme/logo.jpg" height="auto" width="200" style="border-radius:50%">
     <h1 style="text-align: center;">The Luxury Python Template</h1>
 </p>
 
