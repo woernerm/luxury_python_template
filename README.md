@@ -1,7 +1,6 @@
 <h1 align="center">
     <img src="data/readme/logo.jpg" height="auto" width="200">
     <br />
-    <br />
     The Luxury Python Template
 </p>
 
