@@ -1,6 +1,8 @@
-<p align="center">
-    <img src="data/readme/logo.jpg" height="auto" width="200" style="border-radius:50%">
-    <h1 style="text-align: center;">The Luxury Python Template</h1>
+<h1 align="center">
+    <img src="data/readme/logo.jpg" height="auto" width="200" style="border-radius:10%">
+    <br />
+    <br />
+    The Luxury Python Template
 </p>
 
 <p align="center">
@@ -12,7 +14,7 @@
     <a href="https://github.com/psf/black"><img src="https://img.shields.io/badge/code%20style-black-000000.svg" /></a>
 </p>
 
-<h4 style="text-align: center;">Maximum Coding Convenience from Day One</h4>
+<h4 align="center">Maximum Coding Convenience from Day One</h4>
 
 <p align="center">
     <a href="#introduction">Introduction</a> •
