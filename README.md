@@ -1,24 +1,7 @@
-<style>
-    img.headline {
-        width: 10em; 
-        border-radius: 1em; 
-        margin-bottom: 1.25em; 
-        display: block; 
-        margin-left: auto; 
-        margin-right: auto;
-    }
-
-    h1.headline {
-        text-align: center;
-    }
-
-    h4.subtitle{
-        text-align: center;
-    }
-</style>
-
-<img class="headline" src="data/readme/logo.jpg">
-<h1 class="headline">The Luxury Python Template</h1>
+<p align="center">
+    <img style="width: 10em; border-radius: 1em;" src="data/readme/logo.jpg">
+    <h1 style="text-align: center;">The Luxury Python Template</h1>
+</p>
 
 <p align="center">
     <img src="data/badges/build.svg" />
@@ -29,7 +12,7 @@
     <a href="https://github.com/psf/black"><img src="https://img.shields.io/badge/code%20style-black-000000.svg" /></a>
 </p>
 
-<h4 class="subtitle">Maximum Coding Convenience from Day One</h4>
+<h4 style="text-align: center;">Maximum Coding Convenience from Day One</h4>
 
 <p align="center">
     <a href="#introduction">Introduction</a> •
