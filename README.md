@@ -1,11 +1,43 @@
-# The Luxury Python Template
-![build](data/badges/build.svg)
-![test](data/badges/test.svg)
-![coverage](data/badges/test_coverage.svg)
-![doc coverage](data/badges/doc_coverage.svg)
-![vulnerabilities](data/badges/vulnerabilities.svg)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+<style>
+    img.headline {
+        width: 10em; 
+        border-radius: 1em; 
+        margin-bottom: 1.25em; 
+        display: block; 
+        margin-left: auto; 
+        margin-right: auto;
+    }
 
+    h1.headline {
+        text-align: center;
+    }
+
+    h4.subtitle{
+        text-align: center;
+    }
+</style>
+
+<img class="headline" src="data/readme/logo.jpg">
+<h1 class="headline">The Luxury Python Template</h1>
+
+<p align="center">
+    <img src="data/badges/build.svg" />
+    <img src="data/badges/test.svg" />
+    <img src="data/badges/test_coverage.svg" />
+    <img src="data/badges/doc_coverage.svg" />
+    <img src="data/badges/vulnerabilities.svg" />
+    <a href="https://github.com/psf/black"><img src="https://img.shields.io/badge/code%20style-black-000000.svg" /></a>
+</p>
+
+<h4 class="subtitle">Maximum Coding Convenience from Day One</h4>
+
+<p align="center">
+    <a href="#introduction">Introduction</a> •
+    <a href="#example-report">Example Report</a> •
+    <a href="#quick-guide">Quick Guide</a>
+</p>
+
+# Introduction
 There are great tools available to automatically style, analyze and build your code. 
 They help you deliver better products faster. However, you have to learn how they work, 
 configure them and clean up after them. It’s easy to forgo this tedious work in the 
