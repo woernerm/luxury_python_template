@@ -21,6 +21,7 @@
     <a href="#example-report">Example Report</a> •
     <a href="#quick-guide">Quick Guide</a>
 </p>
+<br />
 
 # Introduction
 There are great tools available to automatically style, analyze and build your code. 
