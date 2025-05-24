@@ -3,13 +3,11 @@ pybadges
 Sphinx
 pydata_sphinx_theme
 myst_parser[linkify]
-flake8
-flake8-json
-isort
-black
 mypy
 defusedxml
 Bandit
 Coverage
 build
 setuptools
+ruff
+pytest

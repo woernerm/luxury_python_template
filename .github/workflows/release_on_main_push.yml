@@ -35,7 +35,7 @@ jobs:
             UV_SYSTEM_PYTHON: 1
 
         - name: Build
-          run: python package.py build
+          run: python package.py build --yes
 
         - name: Create Github Release
           run: |
