@@ -1606,6 +1606,7 @@ class Documentation:
                 ("sphinx", None, None),
                 ("pydata_sphinx_theme", None, None),
                 ("myst_parser", "myst_parser[linkify]", None),
+                ("sphinxcontrib-mermaid", None, None),
             ]
         return []
 
@@ -1691,6 +1692,7 @@ class Documentation:
                 ]
             )
         )
+        self._settings.DOCUMENTATION_HTML_DIR.mkdir(parents=True, exist_ok=True)
         (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").touch()
         self._passed = step1result and step2result
         return self._passed
@@ -2422,7 +2424,7 @@ class DocInspector:
         signature = list(inspect.signature(subject).parameters.keys())
 
         # Filter the "self" - parameter.
-        if type == "method" and signature[0].lower() == "self":
+        if type == "method" and signature and signature[0].lower() == "self":
             signature.pop(0)
 
         return signature

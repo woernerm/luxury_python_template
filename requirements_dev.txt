@@ -11,3 +11,4 @@ build
 setuptools
 ruff
 pytest
+sphinxcontrib-mermaid

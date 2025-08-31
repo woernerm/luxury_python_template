@@ -45,7 +45,7 @@ def pytest_collection_modifyitems(session, config, items):
         f.write(f"**Author(s)**: {author}\n\n")
         f.write(f"**Copyright**: {copyright}\n\n")
         f.write(f"**Release(s)**: {release}\n\n")
-        f.write(f"## Requirements\n")
+        f.write("## Requirements\n")
 
         requirements = defaultdict(list)
         for item in items:

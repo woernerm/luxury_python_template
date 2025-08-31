@@ -40,6 +40,7 @@ sys.path.append(os.path.abspath(packagesettings.SRC_DIR))
 extensions = [
     "sphinx.ext.autodoc",  # Automatic API documentation
     "sphinx.ext.napoleon",  # Google-style docstrings
+    "sphinxcontrib.mermaid", # Mermaid diagrams
     "myst_parser",  # Import markdown files like Readme.md.
 ]
 
@@ -75,6 +76,8 @@ myst_enable_extensions = [
     "substitution",
     "tasklist",
 ]
+
+myst_fence_as_directive = ["mermaid"]
 
 autodoc_default_options = {
     "member-order": "groupwise",
