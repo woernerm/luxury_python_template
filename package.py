@@ -1606,7 +1606,7 @@ class Documentation:
                 ("sphinx", None, None),
                 ("pydata_sphinx_theme", None, None),
                 ("myst_parser", "myst_parser[linkify]", None),
-                ("sphinxcontrib-mermaid", None, None),
+                ("sphinxcontrib.mermaid", "sphinxcontrib-mermaid", None),
             ]
         return []
 
