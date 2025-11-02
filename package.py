@@ -62,7 +62,6 @@ class Settings:
         "RUN_TESTS",
         "CHECK_STYLE",
         "CHECK_TYPES",
-        "UPDATE_PASSFAIL_BADGE",
         "UPDATE_TESTCOVERAGE_BADGE",
         "UPDATE_TEST_BADGE",
         "UPDATE_DOCCOVERAGE_BADGE",
@@ -115,9 +114,6 @@ class Settings:
     # The file that contains package configuration for setuptools.
     CONFIGFILE = BASE_DIR / "pyproject.toml"
 
-    # Directory in which badges are stored.
-    BADGE_FOLDER = BASE_DIR / "data" / "badges"
-
     # Folder into which json for analyzing dependencies are placed.
     TMP_DIR = BASE_DIR / "tmp"
 
@@ -133,9 +129,6 @@ class Settings:
     # Directory in which the report template can be found.
     REPORT_TEMPLATE_DIR = BASE_DIR / "data" / "report_template"
 
-    # Path to the report template.
-    REPORT_TEMPLATE_FILE = REPORT_TEMPLATE_DIR / "report.jinja"
-
     # Path to the main report file.
     REPORT_HTML = REPORT_DIR / "report.html"
 
@@ -147,9 +140,6 @@ class Settings:
 
     # Name of the report section about testing.
     REPORT_SECTION_NAME_TEST = "Test"
-
-    # Name of the report section about testing.
-    REPORT_SECTION_NAME_DEPENDENCY_VERSIONS = "Versions"
 
     # Name of the report section about security (bandit).
     REPORT_SECTION_NAME_SECURITY = "Security"
@@ -169,9 +159,6 @@ class Settings:
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
 
-    # The file that contains the requirements.
-    REQUIREMENTS_FILE = TMP_DIR / "requirements.md"
-
     # The file in which bandit's results are stored (for parsing by package.py).
     SECURITY_BANDIT_JSON = TMP_DIR / "bandit.json"
 
@@ -188,36 +175,69 @@ class Settings:
     # *** This section specifies colors for badges files ***
     # ******************************************************
 
-    # Thresholds for the badge colors that indicate the test coverage. Each dictionary
-    # key corresponds to the minimum coverage necessary for using the color given as
-    # dictionary value. The badge will use the highest key value for which
-    # coverage >= key.
-    TEST_COVERAGE_THRESHOLDS = {
-        99: "brightgreen",
-        98: "green",
-        96: "yellowgreen",
-        94: "yellow",
-        90: "orange",
+    # Thresholds for the badge colors that indicate a percentage.
+    PERCENTAGE_THRESHOLDS = {
+        98: "brightgreen",
+        95: "green",
+        90: "yellowgreen",
+        85: "yellow",
+        70: "orange",
     }
 
-    # Thresholds for the badge colors that indicate the documentation coverage. Each
-    # dictionary key corresponds to the minimum coverage necessary for using the color
-    # given as  dictionary value. The badge will use the highest key value for which
-    # coverage >= key.
-    DOCUMENTATION_COVERAGE_THRESHOLDS = {
-        99: "brightgreen",
-        98: "green",
-        96: "yellowgreen",
-        94: "yellow",
-        90: "orange",
+    # Thresholds for the badge colors that indicate a count.
+    COUNT_THRESHOLDS = {
+        0: "brightgreen",
+        2: "green",
+        4: "yellowgreen",
+        6: "yellow",
+        8: "orange",
     }
 
-    # Thresholds for the badge colors that indicate the number of security issues. Each
-    # dictionary key corresponds to the maximum issues necessary for using the color
-    # given as  dictionary value. The badge will use the lowest key value for which
-    # number of issues <= key.
-    SECURITY_ISSUES_THRESHOLDS = {0: "brightgreen"}
 
+class Environment:
+    def __init__(self):
+        self._has_uv = None
+        self._packages = [e.split("==")[0] for e in self.pip("freeze").splitlines()]
+
+    def has_uv(self) -> bool:
+        """ Returns True, if uv package manager is available. False, otherwise. """
+        if self._has_uv is None:
+            self._has_uv = self.cmd("uv", "--version") is not None
+        return self._has_uv
+
+    def cmd(self, *args) -> Optional[str]:
+        """ Run a command.
+
+        Args:
+            args: The command to run.
+        """
+        from subprocess import run, CalledProcessError
+
+        try:
+            process = run(args, shell=True, check=True, capture_output=True)
+            return process.stdout.decode("utf-8") if process.returncode == 0 else None
+        except (FileNotFoundError, CalledProcessError):
+            return None
+
+    def pip(self, *args) -> Optional[str]:
+        """ Run a pip command, preferably using uv. Use the original pip otherwise.
+
+        Args:
+            args: The command to run.
+        """
+        return self.cmd("uv", "pip", *args) if self.has_uv() else self.cmd("pip", *args)
+    
+    def build(self, outdir: Path) -> Optional[str]:
+        """ Run build command, preferably using uv. Otherwise, use the original build.
+        """
+        return (
+            self.cmd("uv", "build", "--sdist", "--wheel", "-o", str(outdir)) 
+            if self.has_uv() else 
+            self.cmd("python", "-m", "build", "-s", "-w", "-o", str(outdir))
+        )
+    
+    def __contains__(self, package: str) -> bool:
+        return package in self._packages
 
 def require(
     requirements: List[Tuple[str, Optional[str], Optional[List[str]]]],
@@ -238,26 +258,21 @@ def require(
     Returns:
         True, if the given module is installed. False, otherwise.
     """
-
+    venv = Environment()
     notinstalled = []
     for requirement in requirements:
         modulename, packagename, options = requirement
         packagename = modulename if packagename is None else packagename
         options = [] if options is None else options
-        run = run_uv if has_uv() else pyexecute
 
         try:
             importlib.invalidate_caches()
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
-                cmd = (
-                    ["pip", "install"] 
-                    + options 
-                    + [packagename] 
-                    + ["--disable-pip-version-check"]
+                venv.pip(
+                    "install", *options, packagename, "--disable-pip-version-check"
                 )
-                run(cmd)
                 # Make sure that the running script finds the new module.
                 importlib.invalidate_caches()
             else:
@@ -348,37 +363,8 @@ def get_program_path(prog: str):
     try:
         return Path(spec.loader.path)  # type: ignore
     except AttributeError:
-        return None
+        return None 
 
-
-def run_uv(args: list) -> bool:
-    """
-    Runs a command using uv package manager.
-
-    Args:
-        args: The command to run.
-    """
-    from subprocess import run, CalledProcessError
-    cmd = ["uv"] + [e for e in args if e != "--disable-pip-version-check"]
-
-    try:
-        run(cmd, shell=True, check=True)
-        return True
-    except CalledProcessError:
-        return False
-
-
-def has_uv():
-    """ Returns True, if uv package manager is available. False, otherwise. """
-    from subprocess import run, CalledProcessError, DEVNULL
-
-    try:
-        # Run with no output to avoid cluttering the console.
-        run(["uv", "version"], shell=True, check=True, stdout=DEVNULL, stderr=DEVNULL)
-        return True
-    except (FileNotFoundError, CalledProcessError):
-        return False    
-    
 
 def runner(cmd: list):
     """
@@ -457,7 +443,6 @@ class Report:
     SUMMARY_NAME = "name"
     SUMMARY_VALUE = "value"
     SUMMARY_UNIT = "unit"
-    SUMMARY_PASSED = "passed"
 
     class List:
         """
@@ -582,13 +567,6 @@ class Report:
             """
             return len(self.entries)
 
-        @property
-        def headings(self):
-            """
-            Returns the headings for each column defined for the table.
-            """
-            return self.columns
-
     class File:
         """
         Models a file in the final report.
@@ -652,7 +630,10 @@ class Report:
             The heading used for the report. Derived from the file path.
             """
             absolute = Path(self.filepath).absolute()
-            return str(absolute.relative_to(Path().cwd()))
+            try:
+                return str(absolute.relative_to(Path().cwd()))
+            except ValueError:
+                return str(absolute)
 
         def set_mark_name(self, marking: str, label: str):
             """
@@ -1149,18 +1130,16 @@ class Meta:
         return str(date.year) + ", " + ", ".join(self.getAuthors())
 
 
-class AbsBadge:
+class Badge:
+    """ Class for replacing badges in the readme file. Uses the https://shields.io/ api.
     """
-    Class for generating badges that can be displayed on PyPi
 
-    As of 2022-03-20, PyPi does not allow relative images paths. Therefore, the images
-    need to be hosted somewhere else and included in the readme as an absolute
-    http://... link. The badges on PyPi should only show the state of the most recent
-    release available on PyPi. Therefore, one cannot use a link to the current version
-    on github, because the state might be different. Likewise, at the state of building
-    the commit hash is not known. Therefore, the images need to be available somewhere
-    else. This is done by using the simple https://shields.io/ api.
-    """
+    REGEX_PREFIX = r"(https:\/\/img\.shields\.io\/badge\/)("
+    REGEX_POSTFIX = r")-([^\-\"' ]+)-([^\-\"' ]+)"
+
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1171,305 +1150,32 @@ class AbsBadge:
         """
         self._settings = settings
         meta = Meta(settings.CONFIGFILE)
-        self._readmefilename = meta.get("readme")
-        self._rel_abs_map = dict()
-        with open(self._readmefilename, "r") as file:
-            self._readme = file.read()
+        self._filename = meta.get("readme")
 
-    def replace_badge(self, badgefile: str, title: str, text: str, color: str) -> None:
-        """
-        Replaces a reference to badgefile with shields.io link.
-
-        Args:
-            badgefile: The local file of the badge.
-            title: The title of the badge to display.
-            text: The message on the badge to display.
-            color: The color the badge shall have.
-        """
-
-        link_stem = f"https://img.shields.io/static/v1?label={quote(title)}&message="
-        link = link_stem + f"{quote(text)}&color={quote(color)}"
-        # Replace address, if shields.io badge is used.
-        link_regex = r"\([ ]*" + re.escape(link_stem) + r"[^\)]*?[ ]*\)"
-        badgefile_left = badgefile.replace("/", "\\")
-        badgefile_right = badgefile.replace("\\", "/")
-        self._rel_abs_map[badgefile_right] = link_regex
-
-        if badgefile_right in self._readme or badgefile_left in self._readme:
-            # Replace static badge file independent of slash direction.
-            self._readme = self._readme.replace(badgefile_left, link)
-            self._readme = self._readme.replace(badgefile_right, link)
-        else:
-            self._readme = re.sub(link_regex, f"({link})", self._readme)
-
-    def write_absolute_readme(self):
-        """
-        Replaces the readme file with a version that uses shields.io badges.
-        """
-        with open(self._readmefilename, "w") as file:
-            file.write(self._readme)
-
-    def write_relative_readme(self):
-        """
-        Replaces the readme file with a version that uses local badge files.
-        """
-        for badgefile, link_regex in self._rel_abs_map.items():
-            self._readme = re.sub(link_regex, f"({badgefile})", self._readme)
-
-        with open(self._readmefilename, "w") as file:
-            file.write(self._readme)
-
-
-class Badge:
-    """
-    Class for generating badges that can be displayed in readme files or elsewhere.
-
-    The badges are generated using the badge package. It will generate static SVG
-    files that you may include in your readme, website or somewhere else. Using static
-    files in the repository makes you independent from third-party services. This is
-    useful if you work on confidential projects or if you want the badges to work on
-    a device that is disconnected from the internet.
-    """
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        badges = {
-            "UPDATE_PASSFAIL_BADGE",
-            "UPDATE_TESTCOVERAGE_BADGE",
-            "UPDATE_TEST_BADGE",
-            "UPDATE_DOCCOVERAGE_BADGE",
-            "UPDATE_SECURITY_BADGE",
-            "UPDATE_BUILD_BADGE",
-        }
-
-        requirements = []
-
-        # Get Python version and check if it is >= 3.8.
-        python_version = sys.version_info
-        if python_version >= (3, 13):
-            requirements.append(("imghdr", "standard-imghdr", None))
-
-        if badges & set(settings.FEATURES):
-            requirements.append(("pybadges", None, None))
-
-        return requirements
-
-    def __init__(self, settings: Settings) -> None:
-        """
-        Initialize the class with settings.
-
-        Args:
-            settings: The settings instance to use.
-        """
-        self._settings = settings
-        self._absbadge = AbsBadge(settings)
-        self.active = True
-
-    def get_badgefile(self, badgename: str) -> str:
-        """
-        Returns the filename to the badge with the given name.
-
-        Args:
-            badgename: The name of the badge for which the corresponding file shall
-                be returned.
-
-        Returns:
-            File path to the badge's svg file.
-        """
-        filename = badgename.replace(" ", "_")
-        badgefolder = os.path.normpath(self._settings.BADGE_FOLDER)
-        return str(Path(badgefolder) / f"{filename}.svg")
-
-    def _write(self, badgefile: str, data: str):
-        """
-        Write the given SVG data to a file in the repository as given by the settings.
-
-        Args:
-            badgename: The filename of the badge.
-            data: The SVG data to be written to a file in the repository.
-        """
-
-        mkdirs_if_not_exists(self._settings.BADGE_FOLDER)
-        with open(badgefile, "w") as f:
-            f.write(data)
-
-    def _getThresholdColorGTE(self, thresholddict: dict, value: float) -> str:
-        """
-        Returns the applicable color for a badge based on a threshold.
-
-        Badges that indicate coverage are typically colored according to the indicated
-        coverage. This method determines the right color by selecting the best match
-        from the settings. The best match is the highest matching threshold.
-
-        Args:
-            thresholddict: Dictionary with keys as thresholds and values as color
-                string for the badge package.
-            value: The value to find the color for.
-
-        Returns:
-            Color string for the badge packages the matches the given value.
-        """
-        applicable = [k for k in thresholddict.keys() if value >= k]
-        return str(thresholddict[max(applicable)]) if applicable else "red"
-
-    def _getThresholdColorLTE(self, thresholddict: dict, value: float) -> str:
-        """
-        Returns the applicable color for a badge based on a threshold.
-
-        Badges that indicate coverage are typically colored according to the indicated
-        coverage. This method determines the right color by selecting the best match
-        from the settings. The best match is the lowest matching threshold.
-
-        Args:
-            thresholddict: Dictionary with keys as thresholds and values as color
-                string for the badge package.
-            value: The value to find the color for.
-
-        Returns:
-            Color string for the badge packages the matches the given value.
-        """
-        applicable = [k for k in thresholddict.keys() if value <= k]
-        return str(thresholddict[min(applicable)]) if applicable else "red"
-
-    def get_coverage_badge_data(self, title: str, value: float, thresholds: dict):
-        """
-        Returns a tuple with details about the coverage badge to create.
-
-        Args:
-            title: The title of the badge to display.
-            value: The value that shall be displayed in percent.
-            thresholds: Dictionary with keys as thresholds and values as color
-                string for the badge package.
-
-        Returns:
-            Tuple consisting of title, message string and color of the badge.
-        """
-        coverage = math.floor(value)
-        color = self._getThresholdColorGTE(thresholds, coverage)
-        return (title, f"{coverage}%", color)
-
-    def get_issue_badge_data(self, title: str, value: Optional[int], thresholds: dict):
-        """
-        Returns a tuple with details about the issue badge to create.
-
-        Args:
-            title: The title of the badge to display.
-            value: The value that shall be displayed.
-            thresholds: Dictionary with keys as thresholds and values as color
-                string for the badge package.
-
-        Returns:
-            Tuple consisting of title, message string and color of the badge.
-        """
-        nissues = str(value)
+    def set(self, title: str, value: str | int | float | bool) -> str:
         color = "red"
-
-        if value is not None:
-            color = self._getThresholdColorLTE(thresholds, value)
-        else:
-            nissues = "Unknown"
-
-        return (title, str(nissues), color)
-
-    def get_passfail_badge_data(self, title: str, passing: bool):
-        """
-        Returns a tuple with details about the pass-fail badge to create.
-
-        Args:
-            title: The title of the badge to display.
-            passing: True, if the test has been passed. False, otherwise.
-
-        Returns:
-            Tuple consisting of title, message string and color of the badge.
-        """
-        text = "passing" if passing else "failing"
-        color = "brightgreen" if passing else "red"
-        return (title, text, color)
-
-    def coverage_badge(self, title: str, value: float, thresholds: dict):
-        """
-        Generates a badge for coverage.
-
-        Args:
-            title: The title of the badge to display.
-            value: The coverage value in percent.
-            thresholds: The threshold dictionary to use for assigning colors.
-        """
-        if not self.active:
-            print(f"Skipping coverage badge.")
-            return
+        if isinstance(value, bool):
+            color = "brightgreen" if value else "red"
+            value = "passed" if value else "failed"
+        elif isinstance(value, float):
+            thresholds = self._settings.PERCENTAGE_THRESHOLDS
+            applicable = [k for k in thresholds if value >= k]
+            color = str(thresholds[max(applicable)]) if applicable else color
+            value = f"{math.floor(value)}%"
+        elif isinstance(value, int):
+            thresholds = self._settings.COUNT_THRESHOLDS
+            applicable = [k for k in thresholds if value <= k]
+            color = str(thresholds[min(applicable)]) if applicable else color
+            value = str(value)
         
-        import pybadges
+    
+        with open(self._filename, "r") as file:
+            regex = self.REGEX_PREFIX + quote(title) + self.REGEX_POSTFIX
+            repl = r"\1" + f"{quote(title)}-{quote(value)}-{quote(color)}"
+            readme = re.sub(regex, repl, file.read())
 
-        badge_data = self.get_coverage_badge_data(title, value, thresholds)
-        data = pybadges.badge(
-            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
-        )
-
-        badgefile = self.get_badgefile(title)
-        self._absbadge.replace_badge(badgefile, *badge_data)
-        self._write(badgefile, data)
-
-    def issue_badge(self, title: str, value: Optional[int], thresholds: dict):
-        """
-        Generates a badge for the number of issues found.
-
-        Args:
-            title: The title of the badge to display.
-            value: The number of issues found.
-            thresholds: The threshold dictionary to use for assigning colors.
-        """
-        if not self.active:
-            print(f"Skipping issue badge.")
-            return
-        
-        import pybadges
-
-        badge_data = self.get_issue_badge_data(title, value, thresholds)
-
-        data = pybadges.badge(
-            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
-        )
-        badgefile = self.get_badgefile(title)
-        self._absbadge.replace_badge(badgefile, *badge_data)
-        self._write(badgefile, data)
-
-    def passfail_badge(self, name: str, passing: bool):
-        """
-        Generates a badge that indicates that something has passed or failed.
-
-        The generated SVG file is directly written to one of the repository's folders
-        as given in the settings.
-
-        Args:
-            name: The name displayed on the badge.
-            passing: True, if the badge shall indicate passage. False, otherwise.
-        """
-        if not self.active:
-            print(f"Skipping passfail badge.")
-            return
-        
-        import pybadges
-
-        badge_data = self.get_passfail_badge_data(name, passing)
-        data = pybadges.badge(
-            left_text=badge_data[0], right_text=badge_data[1], right_color=badge_data[2]
-        )
-        badgefile = self.get_badgefile(name)
-        self._absbadge.replace_badge(badgefile, *badge_data)
-        self._write(badgefile, data)
-
-    def write_relative_readme(self):
-        """
-        Replaces the readme file with a version that uses local badge files.
-        """
-        self._absbadge.write_relative_readme()
-
-    def write_absolute_readme(self):
-        """
-        Replaces the readme file with a version that uses shields.io badges.
-        """
-        self._absbadge.write_absolute_readme()
+        with open(self._filename, "w") as file:
+            file.write(readme)
 
 
 class CalVersion:
@@ -2233,7 +1939,7 @@ class Test:
                 )
                 table.summary = (
                     "Coverage",
-                    math.floor(data[self.KEY_TOTALS][self.KEY_COVERAGE]),
+                    data[self.KEY_TOTALS][self.KEY_COVERAGE],
                     "%",
                 )
             report.add(self._settings.REPORT_SECTION_NAME_TEST, table)
@@ -2331,10 +2037,8 @@ class Build:
         self.remove()
 
         builddir = str(self._settings.DISTRIBUTABLE_DIR)
-        if has_uv():
-            self._passed = not bool(run_uv(["build", "-o", builddir]))
-        else:
-            self._passed = not bool(pyexecute(["build", "-s", "-w", "-o", builddir]))
+        venv = Environment()
+        self._passed = venv.build(builddir) is not None
         return self._passed
 
 
@@ -2349,21 +2053,11 @@ class DocInspector:
 
     REGEX_PARAMETERS = re.compile(r":param[ ]*([^:]+):")
     REGEX_FIELD = re.compile(r":[^:]+:")
-    REGEX_DOC = re.compile(
-        r"(\"\"\".*?\"\"\"|#[^\n]*|\".*?\"|\'.*?\')", re.MULTILINE | re.DOTALL
-    )
-    REGEX_RETURN_NONE = re.compile(r"return([ ]*None|[ ]*[$\n])")
-    REGEX_RETURN = re.compile(r"return[ ]+(\w|\d|[\[{\(])")
-    REGEX_DOCRETURN = re.compile(r":return(s)?:[ ]*(\w|\d)+")
-    REGEX_NESTED = re.compile(
-        r"([ \t]+)(def|class)[ ]+[^:]+:\n(\1[ \t]+[^ ][^\n]+\n|[ ]*\n|\1[ \t]+[^ ])+"
-    )
 
     UNUSED = "Unused"
     DOCUMENTED = "Documented"
     UNDOCUMENTED = "Undocumented"
 
-    KEY_TYPE = "type"
     KEY_ISSUE = "issue"
     KEY_WHAT = "what"
     KEY_OBJNAME = "object_name"
@@ -2375,7 +2069,7 @@ class DocInspector:
     SECTION_DOCUMENTED = "documented_elements"
 
     ISSUE_UNDOC_PARAM = "undocumented parameter"
-    ISSUE_UNDOC_RETURN = "undocumented return value"
+    ISSUE_UNDOC_PARAM_EXCEPTION = ["args", "kwargs", "kw", "ag"]
     ISSUE_UNDOC_DESCRIPTION = "missing description"
     ISSUE_UNUSED_PARAM = "documented but unused parameter"
 
@@ -2389,8 +2083,6 @@ class DocInspector:
             settings: Instance of a settings class to get settings from.
         """
         self._settings = settings
-        self.undocumented = list()
-        self.missing = list()
         self.log = list()
         self.documented = {}  # Number of documented elements in each file.
         self.files = set()
@@ -2544,35 +2236,6 @@ class DocInspector:
             return None
         return doc[0]
 
-    def _missingReturn(self, subject: object, lines: list, what: str, name):
-        """
-        Determines, whether a return value documentation is missing.
-
-        If there is a non-None return value, it should be documented. Functions and
-        methods that return None can still document return values, e.g. to explicitly
-        state None or document why None is returned. That is deemed optional.
-        """
-
-        if what not in ["method", "function"]:
-            return None
-
-        source = inspect.getsource(subject).strip()  # type: ignore
-
-        # Find returns that are not None.
-        # First, remove docstrings, comments and strings.
-        cleaned = self.REGEX_DOC.sub("", source)
-        # Second, remove "return None" or return statements without value.
-        cleaned = self.REGEX_RETURN_NONE.sub("", cleaned)
-        # Third, remove nested functions and classes.
-        cleaned = self.REGEX_NESTED.sub("", cleaned)
-
-        # Find remaining return statements which mention a value or variable.
-        notNone = self.REGEX_RETURN.search(cleaned)
-        # Detect, whether return values are part of the docstring.
-        docret = self.REGEX_DOCRETURN.search("\n".join(lines))
-
-        return notNone is not None and docret is None
-
     def process(self, app, what, name, obj, options, lines) -> None:
         """
         Determines code that has not been properly documented.
@@ -2617,21 +2280,12 @@ class DocInspector:
         else:
             self.add_documented(file)
 
-        # Check presence of return value.
-        if self._missingReturn(obj, lines, what, name):
-            self.add_issue(
-                obj,
-                what,
-                name,
-                self.ISSUE_UNDOC_RETURN,
-                f"The return value of {what} {name} is not documented. Note that "
-                + "this message may also have been caused by incorrect indentation.",
-            )
-        else:
-            self.add_documented(file)
-
         # Check presence of parameters.
         undocParameters = self._getParameter(obj, lines, what, self.UNDOCUMENTED)
+        # Filter out general arguments for compatibility like kwargs or args.
+        undocParameters = [
+            e for e in undocParameters if e not in self.ISSUE_UNDOC_PARAM_EXCEPTION
+        ]
         for param in undocParameters:
             self.add_issue(
                 obj,
@@ -2740,7 +2394,7 @@ class DocInspector:
         if numdoc + numundoc == 0:
             return 0 # Avoid division by zero.
 
-        return math.floor(numdoc / (numdoc + numundoc) * 100)
+        return numdoc / (numdoc + numundoc) * 100
 
     def report(self, report: Report) -> None:
         """
@@ -2753,7 +2407,11 @@ class DocInspector:
 
         for entry in self.log:
             filename = entry[self.KEY_FILE]
-            relfilename = Path(filename).absolute().relative_to(Path().cwd())
+            try:
+                relfilename = Path(filename).absolute().relative_to(Path().cwd())
+            except ValueError:
+                relfilename = Path(filename).absolute()
+
             minline = min(entry[self.KEY_LINES])
             maxline = max(entry[self.KEY_LINES])
             file = report.File(filename)
@@ -2786,7 +2444,7 @@ class DocInspector:
                 + entry[self.KEY_TEXT]
             )
             issues.add(summary, detail)
-        issues.summary = ("Coverage", math.floor(self.get_coverage()), "%")
+        issues.summary = ("Coverage", self.get_coverage(), "%")
         report.add(self._settings.REPORT_SECTION_NAME_DOCUMENTATION, issues)
 
 
@@ -3028,47 +2686,32 @@ class Manager:
             totals[TEST_COVERAGE] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_TEST
             )
-            self._badge.coverage_badge(
-                "test coverage",
-                totals[TEST_COVERAGE],
-                self._settings.TEST_COVERAGE_THRESHOLDS,
-            )
+            self._badge.set("test_coverage", totals[TEST_COVERAGE])
         if "UPDATE_DOCCOVERAGE_BADGE" in self._settings.FEATURES:
             totals[DOC_COVERAGE] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_DOCUMENTATION
             )
-            self._badge.coverage_badge(
-                "doc coverage",
-                totals[DOC_COVERAGE],
-                self._settings.DOCUMENTATION_COVERAGE_THRESHOLDS,
-            )
+            self._badge.set("doc_coverage", totals[DOC_COVERAGE])
         if "UPDATE_SECURITY_BADGE" in self._settings.FEATURES:
             totals[SECURITY] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_SECURITY
             )
-            self._badge.issue_badge(
-                "vulnerabilities",
-                totals[SECURITY],
-                self._settings.SECURITY_ISSUES_THRESHOLDS,
-            )
+            self._badge.set("vulnerabilities", totals[SECURITY])
         if "UPDATE_TEST_BADGE" in self._settings.FEATURES:
             totals[TEST_PASSED] = self._test.ispassed()
-            self._badge.passfail_badge("test", totals[TEST_PASSED])
+            self._badge.set("test", totals[TEST_PASSED])
 
         # For including the result in the build, assume that build was successful.
         # Otherwise, it will not be included in a non-existing (failed) build anyway.
         if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
-            self._badge.passfail_badge("build", True)
-
-        self._badge.write_absolute_readme()
+            self._badge.set("build", True)
 
         if not quiet:
             print("Building wheels...")
         self._build.run()
         if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
             totals[BUILD_PASSED] = self._build.ispassed()
-            self._badge.passfail_badge("build", totals[BUILD_PASSED])
-        self._badge.write_relative_readme()
+            self._badge.set("build", totals[BUILD_PASSED])
 
         if not quiet:
             print("Update documentation...")
