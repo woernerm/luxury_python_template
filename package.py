@@ -241,7 +241,7 @@ class Environment:
         """
         outdir = Path(outdir).absolute()
         return (
-            cls.cmd("uv", "build", "-o", str(outdir)) 
+            cls.cmd("uv", "build", "-v", "-o", str(outdir)) 
             if cls.has_uv() else 
             cls.cmd("python", "-m", "build", "-o", str(outdir))
         )
@@ -2043,7 +2043,9 @@ class Build:
         self.remove()
 
         venv = Environment()
-        self._passed = venv.build(self._settings.DISTRIBUTABLE_DIR) is not None
+        output = venv.build(self._settings.DISTRIBUTABLE_DIR)
+        print(output)
+        self._passed = output is not None
         return self._passed
 
 
