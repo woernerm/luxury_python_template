@@ -22,17 +22,14 @@ jobs:
           uses: astral-sh/setup-uv@v7
           with:
             enable-cache: true
-            cache-dependency-glob: "requirements_dev.txt"
+            cache-dependency-glob: |
+                "**/package.py"
+                "**/pyproject.toml"
   
         - name: "Set up Python"
           uses: actions/setup-python@v6
           with:
             python-version-file: "pyproject.toml"
-
-        - name: Install requirements
-          run: uv pip install -r requirements_dev.txt
-          env:
-            UV_SYSTEM_PYTHON: 1
 
         - name: Build
           run: python package.py build --yes
