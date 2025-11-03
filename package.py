@@ -221,7 +221,6 @@ class Environment:
         from subprocess import run, CalledProcessError
 
         try:
-            print("Command:", " ".join(args))
             process = run(args, shell=True, check=True, capture_output=True)
             return process.stdout.decode("utf-8") if process.returncode == 0 else None
         except (FileNotFoundError, CalledProcessError):
@@ -242,7 +241,7 @@ class Environment:
         """
         outdir = Path(outdir).absolute()
         return (
-            cls.cmd("uv", "build", "-v", "-o", str(outdir)) 
+            cls.cmd("uv", "build", "-o", str(outdir)) 
             if cls.has_uv() else 
             cls.cmd("python", "-m", "build", "-o", str(outdir))
         )
@@ -2044,10 +2043,7 @@ class Build:
         self.remove()
 
         venv = Environment()
-        output = venv.build(self._settings.DISTRIBUTABLE_DIR)
-        print("Build output:", self._settings.DISTRIBUTABLE_DIR)
-        print(output)
-        self._passed = output is not None
+        self._passed = venv.build(self._settings.DISTRIBUTABLE_DIR) is not None
         return self._passed
 
 
@@ -2466,8 +2462,7 @@ class Manager:
     show the most important metrics.
     """
 
-    CMD_DRY = "dry"
-    CMD_CHOICES = ["build", "report", "doc", "remove", CMD_DRY]
+    CMD_CHOICES = ["build", "report", "doc", "remove"]
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2524,9 +2519,6 @@ class Manager:
             raise Exception(f"Command {args.cmd} does not exist.")
 
         self._setup(args.yes)
-
-        if args.cmd == self.CMD_DRY:
-            return
 
         self._meta = Meta(settings.CONFIGFILE)
         self._badge = Badge(settings)

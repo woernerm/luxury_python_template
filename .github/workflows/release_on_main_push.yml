@@ -25,6 +25,11 @@ jobs:
             cache-dependency-glob: |
                 "**/package.py"
                 "**/pyproject.toml"
+
+        - name: UV Version
+          run: uv self version
+          env:
+            UV_SYSTEM_PYTHON: 1
   
         - name: "Set up Python"
           uses: actions/setup-python@v6
@@ -33,6 +38,11 @@ jobs:
 
         - name: Install requirements
           run: uv pip install -r requirements_dev.txt
+          env:
+            UV_SYSTEM_PYTHON: 1
+
+        - name: Build
+          run: uv build
           env:
             UV_SYSTEM_PYTHON: 1
 
