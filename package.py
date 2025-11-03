@@ -205,7 +205,7 @@ class Environment:
     def has_uv(cls) -> bool:
         """ Returns True, if uv package manager is available. False, otherwise. """
         if cls.HAS_UV is None:
-            cls.HAS_UV = cls.cmd("uv", "--version") is not None
+            cls.HAS_UV = cls.cmd("uv", "self", "version") is not None
         return cls.HAS_UV
 
     def __init__(self):
@@ -223,7 +223,6 @@ class Environment:
         try:
             print("Command:", " ".join(args))
             process = run(args, shell=True, check=True, capture_output=True)
-            print("Output:", process.stdout, process.stderr)
             return process.stdout.decode("utf-8") if process.returncode == 0 else None
         except (FileNotFoundError, CalledProcessError):
             return None
