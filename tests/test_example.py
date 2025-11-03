@@ -1,5 +1,5 @@
 from unittest import TestCase
-from pythontemplate.example_module import example_function
+from example_package_your_username_here.example_module import example_function
 
 
 class MyExampleTestCase(TestCase):

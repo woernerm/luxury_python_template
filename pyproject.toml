@@ -1,17 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.9.6,<0.10.0"]
+build-backend = "uv_build"
 
 [project]
 name = "example_package_YOUR_USERNAME_HERE"
-version = "25.11.0"
-authors = [
-  { name="Example Author", email="author@example.com" },
-]
+version = "25.11.6"
+authors = [{ name = "Example Author", email = "author@example.com" }]
 description = "Place your description here."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -19,14 +18,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "Natural Language :: English",
 ]
-dependencies = [
-  'requests[security] < 3',
-]
+dependencies = ['requests[security] < 3']
 
 [project.urls]
 "Homepage" = "https://github.com/MY_USER/MY_REPO"
 "Bug Tracker" = "https://github.com/MY_USER/MY_REPO/issues"
 
 [tool.ruff]
-fix = true # Apply safe fixes to resolve lint violations.
+fix = true           # Apply safe fixes to resolve lint violations.
 unsafe-fixes = false # Apply unsafe fixes to resolve lint violations.

@@ -195,17 +195,24 @@ class Settings:
 
 
 class Environment:
+    HAS_UV = None
+
+    @classmethod
+    def get_requirements(cls, settings: Settings):
+        return [] if cls.has_uv() else [("uv", None, None)]
+    
+    @classmethod
+    def has_uv(cls) -> bool:
+        """ Returns True, if uv package manager is available. False, otherwise. """
+        if cls.HAS_UV is None:
+            cls.HAS_UV = cls.cmd("uv", "--version") is not None
+        return cls.HAS_UV
+
     def __init__(self):
-        self._has_uv = None
         self._packages = [e.split("==")[0] for e in self.pip("freeze").splitlines()]
 
-    def has_uv(self) -> bool:
-        """ Returns True, if uv package manager is available. False, otherwise. """
-        if self._has_uv is None:
-            self._has_uv = self.cmd("uv", "--version") is not None
-        return self._has_uv
-
-    def cmd(self, *args) -> Optional[str]:
+    @classmethod
+    def cmd(cls, *args) -> Optional[str]:
         """ Run a command.
 
         Args:
@@ -219,21 +226,24 @@ class Environment:
         except (FileNotFoundError, CalledProcessError):
             return None
 
-    def pip(self, *args) -> Optional[str]:
+    @classmethod
+    def pip(cls, *args) -> Optional[str]:
         """ Run a pip command, preferably using uv. Use the original pip otherwise.
 
         Args:
             args: The command to run.
         """
-        return self.cmd("uv", "pip", *args) if self.has_uv() else self.cmd("pip", *args)
+        return cls.cmd("uv", "pip", *args) if cls.has_uv() else cls.cmd("pip", *args)
     
-    def build(self, outdir: Path) -> Optional[str]:
+    @classmethod
+    def build(cls, outdir: Union[Path, str]) -> Optional[str]:
         """ Run build command, preferably using uv. Otherwise, use the original build.
         """
+        outdir = Path(outdir).absolute()
         return (
-            self.cmd("uv", "build", "--sdist", "--wheel", "-o", str(outdir)) 
-            if self.has_uv() else 
-            self.cmd("python", "-m", "build", "-s", "-w", "-o", str(outdir))
+            cls.cmd("uv", "build", "-o", str(outdir)) 
+            if cls.has_uv() else 
+            cls.cmd("python", "-m", "build", "-o", str(outdir))
         )
     
     def __contains__(self, package: str) -> bool:
@@ -270,6 +280,7 @@ def require(
             importlib.import_module(modulename)
         except ModuleNotFoundError:
             if install:
+                print(f"+ Installing {packagename}...")
                 venv.pip(
                     "install", *options, packagename, "--disable-pip-version-check"
                 )
@@ -278,6 +289,7 @@ def require(
             else:
                 notinstalled.append(requirement)
 
+    Environment.HAS_UV = None # Reset uv detection.
     return notinstalled
 
 
@@ -1957,11 +1969,7 @@ class Build:
 
     @classmethod
     def get_requirements(cls, settings: Settings):
-        if "BUILD_WHEELS" in settings.FEATURES:
-            return [
-                ("build", None, None),
-            ]
-        return []
+        return Environment.get_requirements(settings)
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1991,8 +1999,6 @@ class Build:
         distfiles = self.packagename.replace("-", "_")
         distdir = self._settings.DISTRIBUTABLE_DIR
         self.clean()
-
-        print("Removing contents of ", str(distdir / distfiles))
 
         for f in glob.glob(str(distdir / distfiles) + "*.*"):
             print("removing ", f)
@@ -2036,9 +2042,8 @@ class Build:
         
         self.remove()
 
-        builddir = str(self._settings.DISTRIBUTABLE_DIR)
         venv = Environment()
-        self._passed = venv.build(builddir) is not None
+        self._passed = venv.build(self._settings.DISTRIBUTABLE_DIR) is not None
         return self._passed
 
 
@@ -2546,6 +2551,7 @@ class Manager:
                 missing dependencies.
         """
         requirements = (
+            Environment.get_requirements(self._settings) +
             StyleCheck.get_requirements(self._settings) +
             TypeCheck.get_requirements(self._settings) +
             SecurityCheck.get_requirements(self._settings) +
@@ -2553,9 +2559,9 @@ class Manager:
             Documentation.get_requirements(self._settings) + 
             Build.get_requirements(self._settings) + 
             Report.get_requirements(self._settings) + 
-            Badge.get_requirements(self._settings) + 
-            [("setuptools", None, None)]
+            Badge.get_requirements(self._settings)
         )
+        requirements = list(set(requirements))  # Remove duplicates.
 
         notinstalled = require(requirements, False) # type: ignore
 
@@ -2784,9 +2790,6 @@ class Manager:
             quiet: Do not print any output (True).
             keep: Keep temporary files (True) or remove them (False).
         """
-        if not quiet:
-            print("Removing temporary files...")
-
         if not keep:
             self._report.clean()
             self._build.clean()

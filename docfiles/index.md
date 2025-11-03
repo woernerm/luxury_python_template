@@ -1,5 +1,5 @@
 ```{include} ../README.md
-:relative-docs: doc/ 
+:relative-docs: data/readme/ 
 :relative-images:
 ```
 

@@ -1,8 +1,8 @@
-<h1 align="center">
-    <img src="data/readme/logo.jpg" height="auto" style="width: 25%" />
-    <br />
-    The Luxury Python Template
+<p align="center">
+    <img src="data/readme/logo.jpg" height="auto" style="width: 25%" onerror="this.onerror=null;this.src='_static/logo.jpg'" />
 </p>
+
+<h1 align="center">The Luxury Python Template</h1>
 
 <p align="center">
     <img src="https://img.shields.io/badge/build-passed-brightgreen" />
