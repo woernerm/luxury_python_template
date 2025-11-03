@@ -42,18 +42,18 @@ jobs:
             UV_SYSTEM_PYTHON: 1
 
         - name: Build
+          run: python package.py build --yes
+
+        - name: UV Build
           run: uv build
           env:
             UV_SYSTEM_PYTHON: 1
 
-        - name: Build
-          run: python package.py build --yes
-
         - name: Create Github Release
           run: |
             gh release create "$PACKAGE_BUILD_VERSION" \
-              **/dist/*.tar.gz \
-              **/dist/*.whl \
+              ./dist/*.tar.gz \
+              ./dist/*.whl \
               --repo="$GITHUB_REPOSITORY" \
               --title="$PACKAGE_BUILD_VERSION" \
               --generate-notes
