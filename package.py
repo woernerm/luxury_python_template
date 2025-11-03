@@ -221,6 +221,7 @@ class Environment:
         from subprocess import run, CalledProcessError
 
         try:
+            print("Command:", " ".join(args))
             process = run(args, shell=True, check=True, capture_output=True)
             return process.stdout.decode("utf-8") if process.returncode == 0 else None
         except (FileNotFoundError, CalledProcessError):
@@ -2044,6 +2045,7 @@ class Build:
 
         venv = Environment()
         output = venv.build(self._settings.DISTRIBUTABLE_DIR)
+        print("Build output:", self._settings.DISTRIBUTABLE_DIR)
         print(output)
         self._passed = output is not None
         return self._passed
