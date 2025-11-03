@@ -1,0 +1,11 @@
+defusedxml
+mypy
+jinja2
+pydata_sphinx_theme
+coverage
+pytest
+myst_parser[linkify]
+ruff
+sphinxcontrib-mermaid
+sphinx
+bandit

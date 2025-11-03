@@ -31,8 +31,10 @@ jobs:
           with:
             python-version-file: "pyproject.toml"
 
-        - name: Install dependencies
-          run: python package.py dry --yes
+        - name: Install requirements
+          run: uv pip install -r requirements_dev.txt
+          env:
+            UV_SYSTEM_PYTHON: 1
 
         - name: Build
           run: python package.py build --yes
