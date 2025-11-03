@@ -2462,7 +2462,7 @@ class Manager:
     show the most important metrics.
     """
 
-    CMD_CHOICES = ["build", "report", "doc", "remove"]
+    CMD_CHOICES = ["build", "report", "doc", "remove", "dry"]
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2536,6 +2536,9 @@ class Manager:
         self._version = CalVersion(self._settings)
 
         getattr(self, args.cmd)(args.quiet, args.keep)
+
+    def dry(self, quiet: bool, keep:bool = False):
+        pass
 
     def _setup(self, yesmode: bool):
         """

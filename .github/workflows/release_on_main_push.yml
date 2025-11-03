@@ -31,6 +31,9 @@ jobs:
           with:
             python-version-file: "pyproject.toml"
 
+        - name: Install dependencies
+          run: python package.py dry --yes
+
         - name: Build
           run: python package.py build --yes
 
