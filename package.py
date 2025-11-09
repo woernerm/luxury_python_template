@@ -25,6 +25,7 @@ for additional information. By the way: The name is no coincidence: It's chosen 
 you can just hit tab for autocompletion after the first "p" of "package.py". Makes for
 faster typing. ;)
 """
+
 import argparse
 import glob
 import importlib
@@ -198,22 +199,22 @@ class Environment:
     HAS_UV = None
 
     @classmethod
-    def get_requirements(cls, settings: Settings):
-        return [] if cls.has_uv() else [("uv", None, None)]
-    
-    @classmethod
-    def has_uv(cls) -> bool:
-        """ Returns True, if uv package manager is available. False, otherwise. """
+    def get_uv(cls) -> bool:
+        """Returns True, if uv package manager is available. False, otherwise."""
         if cls.HAS_UV is None:
             cls.HAS_UV = cls.cmd("uv", "self", "version") is not None
+        if cls.HAS_UV is False:
+            cls.cmd("pip", "install", "uv")
         return cls.HAS_UV
 
     def __init__(self):
-        self._packages = [e.split("==")[0] for e in self.pip("freeze").splitlines()]
+        self._packages = [
+            e.split("==")[0] for e in self.uv("pip", "freeze").splitlines()
+        ]
 
     @classmethod
     def cmd(cls, *args) -> Optional[str]:
-        """ Run a command.
+        """Run a command.
 
         Args:
             args: The command to run.
@@ -221,80 +222,50 @@ class Environment:
         from subprocess import run, CalledProcessError
 
         try:
-            process = run(args, shell=True, check=True, capture_output=True)
+            process = run(args, shell=False, check=True, capture_output=True)
             return process.stdout.decode("utf-8") if process.returncode == 0 else None
         except (FileNotFoundError, CalledProcessError):
             return None
 
     @classmethod
-    def pip(cls, *args) -> Optional[str]:
-        """ Run a pip command, preferably using uv. Use the original pip otherwise.
+    def uv(cls, *args) -> Optional[str]:
+        """Run a uv command.
 
         Args:
             args: The command to run.
         """
-        return cls.cmd("uv", "pip", *args) if cls.has_uv() else cls.cmd("pip", *args)
+        cls.get_uv()
+        return cls.cmd("uv", *args)
+
+    @classmethod
+    def run(cls, *args) -> Optional[str]:
+        """Run a uv command, preferably using uv. Otherwise, use pip.
+
+        Args:
+            args: The command to run.
+        """
+        return cls.uv("run", *args)
     
     @classmethod
-    def build(cls, outdir: Union[Path, str]) -> Optional[str]:
-        """ Run build command, preferably using uv. Otherwise, use the original build.
+    def uvx(cls, *args):
+        """ Run a command line tool without installing it. 
+        
+        Args:
+            args: The command to run.
         """
-        outdir = Path(outdir).absolute()
-        return (
-            cls.cmd("uv", "build", "-o", str(outdir)) 
-            if cls.has_uv() else 
-            cls.cmd("python", "-m", "build", "-o", str(outdir))
-        )
-    
+        return cls.cmd("uvx", *args)
+
+    @classmethod
+    def build(cls, outdir: Union[Path, str]) -> Optional[str]:
+        """Run build command, preferably using uv. Otherwise, use the original build."""
+        return cls.uv("build", "-o", str(Path(outdir).absolute()))
+
     def __contains__(self, package: str) -> bool:
         return package in self._packages
 
-def require(
-    requirements: List[Tuple[str, Optional[str], Optional[List[str]]]],
-    install: bool = False,
-):
-    """
-    Installs the given module, if it is not available.
-
-    Args:
-        requirements: List of tuples describing the required dependencies. Each tuple
-            is defined as (modulename, packagename). The packagename only has to be
-            given, if it differs from the modulename. Otherwise, you can write None
-            instead of packagename.
-        install: If True, missing modules will automatically be installed. In the same
-            case, the function will return False and not install anything if the
-            parameter is set to False.
-
-    Returns:
-        True, if the given module is installed. False, otherwise.
-    """
-    venv = Environment()
-    notinstalled = []
-    for requirement in requirements:
-        modulename, packagename, options = requirement
-        packagename = modulename if packagename is None else packagename
-        options = [] if options is None else options
-
-        try:
-            importlib.invalidate_caches()
-            importlib.import_module(modulename)
-        except ModuleNotFoundError:
-            if install:
-                print(f"+ Installing {packagename}...")
-                venv.pip(
-                    "install", *options, packagename, "--disable-pip-version-check"
-                )
-                # Make sure that the running script finds the new module.
-                importlib.invalidate_caches()
-            else:
-                notinstalled.append(requirement)
-
-    Environment.HAS_UV = None # Reset uv detection.
-    return notinstalled
-
 
 def write_action_vars(**kwargs):
-    """ Writes the given variables to the GITHUB_ENV file.
+    """Writes the given variables to the GITHUB_ENV file.
 
     The variable values can be of any type. They will be converted to strings before
     writing them to the file.
@@ -305,7 +276,7 @@ def write_action_vars(**kwargs):
     Raises:
         FileExistsError: If the environment variable GITHUB_ENV is not set.
     """
-    filename = os.getenv('GITHUB_ENV')
+    filename = os.getenv("GITHUB_ENV")
 
     if filename is None:
         raise FileExistsError("Environment variable GITHUB_ENV is not set.")
@@ -330,8 +301,8 @@ def remove_if_exists(path: Union[Path, str]):
     except PermissionError as e:
         path = Path(path).absolute()
         if os.path.isdir(str(path)):
-            exit(f"Error while trying to delete folder \"{path}\":\n" + str(e))
-        exit(f"Error while trying to delete file \"{path}\":\n" + str(e))
+            exit(f'Error while trying to delete folder "{path}":\n' + str(e))
+        exit(f'Error while trying to delete file "{path}":\n' + str(e))
 
 
 def remove_if_empty(path: Union[Path, str]):
@@ -344,14 +315,15 @@ def remove_if_empty(path: Union[Path, str]):
     if os.path.isdir(str(path)) and len(os.listdir(str(path))) == 0:
         shutil.rmtree(str(path))
 
+
 def file_has_content(path: Union[Path, str]):
     if not os.path.isfile(str(path)):
-        return False # File does not exist.
+        return False  # File does not exist.
     size = 0
     with open(path, "r") as f:
         f.seek(0, os.SEEK_END)
         size = f.tell()
-    return size > 0 # Has the file any content?
+    return size > 0  # Has the file any content?
 
 
 def mkdirs_if_not_exists(path: Union[str, Path]):
@@ -366,8 +338,8 @@ def mkdirs_if_not_exists(path: Union[str, Path]):
 
 
 def get_program_path(prog: str):
-    """ Return the path to the given program. 
-    
+    """Return the path to the given program.
+
     Args:
         prog: The name of the program to find.
     """
@@ -375,68 +347,7 @@ def get_program_path(prog: str):
     try:
         return Path(spec.loader.path)  # type: ignore
     except AttributeError:
-        return None 
-
-
-def runner(cmd: list):
-    """
-    Runs a module in a separate process.
-
-    Args:
-        cmd: The command to run. First entry must be the module to execute, e.g.
-            "pip" for pip for "sphinx.ext.apidoc" for the sphinx apidoc extension.
-    """
-
-    # Create the list of arguments to provide to the executed module. For this, obtain
-    # the file path for the module and set it as first argument, then copy the remaining
-    # arguments as they are to the argument list.
-    path = get_program_path(cmd[0])  # type: ignore
-    apppath = path.parents[0] / "__main__.py" if path.name == "__init__.py" else path
-    arguments = list([str(apppath)])
-    arguments += cmd[1:]
-
-    # Provide arguments to the module and run the module.
-    sys.argv = arguments
-
-    # Run module and silence error messages as well as findings except for pip and uv.
-    cxt = nullcontext() if cmd[0] in ["pip", "uv"] else redirect_stdout(io.StringIO())
-    # Silence error messages for tools that output findings on stderr although they
-    # are part of normal operation. 
-    cxt = redirect_stderr(io.StringIO()) if cmd[0] in ["mypy"] else cxt
-
-    with cxt:
-        try:
-            runpy.run_module(cmd[0], run_name="__main__")
-        except Exception as e:
-            print(f"Running command {' '.join(cmd)} failed:\n{str(e)}")
-
-
-def pyexecute(cmd: list):
-    """
-    Runs shell commands in a more secure way.
-
-    Shell commands are executed using the absolute python path with which the script
-    was started.
-
-    Args:
-        cmd: Command to execute as a list of arguments.
-
-    Returns:
-        The exit code of the process that ran the module.
-    """
-    if not isinstance(cmd, list):
-        raise Exception(
-            "Expected type list for parameter cmd. "
-            + f"Instead got {type(cmd).__name__}."
-        )
-
-    p = multiprocessing.Process(
-        target=runner,
-        args=(cmd,)
-    )
-    p.start()
-    p.join()
-    return p.exitcode
+        return None
 
 
 class Report:
@@ -727,7 +638,7 @@ class Report:
 
                 # First line starts with 1 and not 0.
                 self.lines[linenumber - 1][self.COLOR] = marking
-            
+
             if self.report:
                 self.range = (
                     min(lines) - self.report._settings.REPORT_LINE_RANGE,
@@ -754,14 +665,6 @@ class Report:
             color = "".join(color)
             return hash(filepath + range + color)
 
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        if "GENERATE_REPORT" in settings.FEATURES:
-            return [
-                ("jinja2", None, None),
-            ]
-        return []
-
     def __init__(self, settings: Settings, appname: str, version: str) -> None:
         """
         Initializes the report.
@@ -781,6 +684,7 @@ class Report:
 
         if self.active:
             import jinja2
+
             self._timestamp = datetime.now().astimezone()
             self._environment = jinja2.Environment(
                 loader=jinja2.FileSystemLoader(str(self._settings.REPORT_TEMPLATE_DIR)),
@@ -798,7 +702,7 @@ class Report:
         if not self.active:
             print(f"Skipping report generation.")
             return
-        
+
         outputdir = Path(self._settings.REPORT_HTML).parent
 
         # Create output directories.
@@ -940,12 +844,13 @@ class Report:
         """
         remove_if_exists(self._settings.TMP_DIR)
 
+
 class Issue:
     def __init__(
-        self, 
-        filename: str, 
-        code: str, 
-        message: str, 
+        self,
+        filename: str,
+        code: str,
+        message: str,
         description: str,
         help_url: str = None,
         lines: Optional[List[int]] = None,
@@ -967,14 +872,14 @@ class Issue:
 
         if not Path(filename).exists():
             return output
-        
+
         with open(filename, "r") as f:
             data = json.load(f)
 
             for issue in data:
                 start = issue.get("location", {}).get("row", None)
                 end = issue.get("end_location", {}).get("row", None)
-                lines = range(start, end+1) if start and end else None
+                lines = range(start, end + 1) if start and end else None
 
                 obj = cls(
                     filename=issue.get("filename", None),
@@ -982,18 +887,18 @@ class Issue:
                     message=issue["message"],
                     description=(issue.get("fix", {}) or {}).get("message", None),
                     help_url=issue.get("url", None),
-                    lines=lines
+                    lines=lines,
                 )
                 output.append(obj)
         return output
-    
+
     @classmethod
     def from_bandit_json(cls, filename: Union[str, Path]) -> List[Self]:
         output = []
 
         if not Path(filename).exists():
             return output
-        
+
         with open(filename, "r") as f:
             data = json.load(f)
             results = data.get("results", [])
@@ -1002,7 +907,7 @@ class Issue:
                 line_range = issue.get("line_range", [])
                 start = min(line_range)
                 end = max(line_range)
-                lines = range(start, end+1) if start and end else None
+                lines = range(start, end + 1) if start and end else None
 
                 msg = issue.get("issue_text", None)
                 test_name = issue.get("test_name", None)
@@ -1020,7 +925,7 @@ class Issue:
                 )
                 output.append(obj)
         return output
-    
+
     @classmethod
     def report(self, issues: List[Self], section_name: str, report: Report):
         """
@@ -1030,14 +935,14 @@ class Issue:
             issues: The issues to export.
             section_name: The name of the section to place the issues in.
             report: The report to export the issues to.
-        """     
+        """
         group_by_file = defaultdict(list)
         for issue in issues:
             group_by_file[issue.filename].append(issue)
-   
+
         if not group_by_file:
             report.add(section_name, Report.List())
-            return # Nothing to report.
+            return  # Nothing to report.
 
         for filename, file_issues in group_by_file.items():
             name = Path(filename).absolute().relative_to(Path().cwd())
@@ -1054,14 +959,14 @@ class Issue:
                 severity = f"<b>Severity</b>: {issue.severity}<br />"
                 confidence_str = confidence if issue.confidence else ""
                 severity_str = severity if issue.severity else ""
-    
+
                 details = (
                     f"<b>Code</b>: {issue.code}<br />"
                     f"{confidence_str}{severity_str}"
                     f"<b>Line</b>: {min(lines)}<br />"
                     f'<b>File</b>: <a href="{file.outputpath}#{min(lines)}">{name}</a>'
                     f'<br /><b>Info</b>: <a href="{issue.url}">{issue.url}</a><br />'
-                    f'<br />{issue.description or issue.message}'
+                    f"<br />{issue.description or issue.message}"
                 )
                 entries.add(issue.message, details)
             report.add(section_name, entries)
@@ -1119,15 +1024,16 @@ class Meta:
 
         with open(self.configfile, "r", encoding="utf8") as f:
             buf = f.read()
-            match = re.search(r"authors[ ]*=[ ]*\[.*?\]", buf, flags=re.MULTILINE | re.DOTALL)
+            match = re.search(
+                r"authors[ ]*=[ ]*\[.*?\]", buf, flags=re.MULTILINE | re.DOTALL
+            )
 
             if match is None:
-                raise LookupError(f'Could not determine authors.')
+                raise LookupError(f"Could not determine authors.")
 
             matchstr = match.group(0)
             names = list(set(re.findall(r"name[ ]*=[ ]*\"([^\"]+)", matchstr)))
             return names
-
 
     def getCopyright(self):
         """
@@ -1143,15 +1049,10 @@ class Meta:
 
 
 class Badge:
-    """ Class for replacing badges in the readme file. Uses the https://shields.io/ api.
-    """
+    """Class for replacing badges in the readme file. Uses the https://shields.io/ api."""
 
     REGEX_PREFIX = r"(https:\/\/img\.shields\.io\/badge\/)("
     REGEX_POSTFIX = r")-([^\-\"' ]+)-([^\-\"' ]+)"
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1179,8 +1080,7 @@ class Badge:
             applicable = [k for k in thresholds if value <= k]
             color = str(thresholds[min(applicable)]) if applicable else color
             value = str(value)
-        
-    
+
         with open(self._filename, "r") as file:
             regex = self.REGEX_PREFIX + quote(title) + self.REGEX_POSTFIX
             repl = r"\1" + f"{quote(title)}-{quote(value)}-{quote(color)}"
@@ -1213,7 +1113,7 @@ class CalVersion:
         """
         Initializes the instance with settings and determines the new version.
 
-        The current version is determined from the pyproject.toml file. If the version 
+        The current version is determined from the pyproject.toml file. If the version
         does not comply with the versioning scheme, the version is overwritten with
         micro / patch number zero.
 
@@ -1293,7 +1193,7 @@ class CalVersion:
         """
         with open(filename, "r") as f:
             buf = str(f.read())
-            buf = re.sub(regex, r"\1 " + f"\"{self.version}\"", buf)
+            buf = re.sub(regex, r"\1 " + f'"{self.version}"', buf)
 
         with open(filename, "w") as f:
             f.write(buf)
@@ -1316,17 +1216,6 @@ class Documentation:
     generating the documentation. The package's API is automatically documented and
     missing documentation is reported.
     """
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        if "GENERATE_DOCUMENTATION" in settings.FEATURES:
-            return [
-                ("sphinx", None, None),
-                ("pydata_sphinx_theme", None, None),
-                ("myst_parser", "myst_parser[linkify]", None),
-                ("sphinxcontrib.mermaid", "sphinxcontrib-mermaid", None),
-            ]
-        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1377,37 +1266,33 @@ class Documentation:
         if not self.active:
             print(f"Skipping documentation.")
             return
-        
+
         self.remove()
 
         # Generate new documentation
         step1result = not bool(
-            pyexecute(
-                [
-                    "sphinx.ext.apidoc",
-                    "-e",
-                    "-q",
-                    "-M",
-                    "-f",
-                    "-t",
-                    str(self._settings.DOCUMENTATION_TEMPLATE_DIR),
-                    "-o",
-                    str(self._settings.DOCUMENTATION_SOURCE_DIR),
-                    str(self._settings.SRC_DIR),
-                ]
+            Environment.run(
+                "sphinx-apidoc",
+                "-e",
+                "-q",
+                "-M",
+                "-f",
+                "-t",
+                str(self._settings.DOCUMENTATION_TEMPLATE_DIR),
+                "-o",
+                str(self._settings.DOCUMENTATION_SOURCE_DIR),
+                str(self._settings.SRC_DIR),
             )
         )
 
         step2result = not bool(
-            pyexecute(
-                [
-                    "sphinx",
-                    "-q",
-                    "-b",
-                    "html",
-                    str(self._settings.DOCUMENTATION_ROOT_DIR),
-                    str(self._settings.DOCUMENTATION_HTML_DIR),
-                ]
+            Environment.run(
+                "sphinx-build",
+                "-q",
+                "-b",
+                "html",
+                str(self._settings.DOCUMENTATION_ROOT_DIR),
+                str(self._settings.DOCUMENTATION_HTML_DIR),
             )
         )
         self._settings.DOCUMENTATION_HTML_DIR.mkdir(parents=True, exist_ok=True)
@@ -1425,14 +1310,6 @@ class StyleCheck:
     they comply with black's way of styling code. A report is generated to document
     any issues found.
     """
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        if "CHECK_STYLE" in settings.FEATURES:
-            return [
-                ("ruff", None, None)
-            ]
-        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1481,38 +1358,36 @@ class StyleCheck:
         if not self.active:
             print(f"Skipping style check.")
             return
-        
+
         self.clean()
         settings = self._settings
         self.checkfile = str(settings.STYLE_REPORT_JSON)
         mkdirs_if_not_exists(settings.REPORT_DIR)
 
-        pyexecute(["ruff", "format", "-q", settings.SRC_DIR, settings.TEST_DIR])
+        Environment.uv("format", "-q", settings.SRC_DIR, settings.TEST_DIR)
         self._passed = not bool(
-            pyexecute(
-                [
-                    "ruff",
-                    "check",
-                    "-q",
-                    "--output-format=json",
-                    "--output-file",
-                    self.checkfile,
-                    settings.SRC_DIR,
-                    settings.TEST_DIR,
-                ]
+            Environment.uv(
+                "format",
+                "--check",
+                "-q",
+                "--output-format=json",
+                "--output-file",
+                self.checkfile,
+                settings.SRC_DIR,
+                settings.TEST_DIR,
             )
         )
         return self._passed
 
     def report(self, report: Report):
-        """ Exports the results to the given report.
+        """Exports the results to the given report.
 
         Args:
             report: The report to export the results to.
         """
         if not self.active:
-            return # Nothing to do.
-        
+            return  # Nothing to do.
+
         issues = Issue.from_ruff_json(self.checkfile)
         Issue.report(issues, self._settings.REPORT_SECTION_NAME_STYLE, report)
 
@@ -1532,15 +1407,6 @@ class TypeCheck:
     GROUP_TYPE = 3
     GROUP_MSG = 4
     GROUP_CODE = 5
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        if "CHECK_TYPES" in settings.FEATURES:
-            return [
-                ("mypy", None, None),
-                ("defusedxml", None, None),
-            ]
-        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1590,37 +1456,35 @@ class TypeCheck:
         if not self.active:
             print(f"Skipping type check.")
             return
-        
+
         self.clean()
 
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
 
         self._passed = not bool(
-            pyexecute(
-                [
-                    "mypy",
-                    "--install-types",
-                    "--show-error-codes",
-                    "--non-interactive",
-                    "--show-absolute-path",
-                    "--warn-unreachable",
-                    "--warn-return-any",
-                    "--warn-redundant-casts",
-                    "--no-implicit-optional",
-                    "--follow-imports=silent",
-                    "--ignore-missing-imports",
-                    "--disable-error-code",
-                    "attr-defined",
-                    "--disable-error-code",
-                    "var-annotated",
-                    "--disable-error-code",
-                    "union-attr",
-                    "--junit-xml",
-                    str(self._settings.TYPE_REPORT_XML),
-                    "--cache-dir",
-                    str(self._settings.MYPY_CACHE),
-                    str(self._settings.SRC_DIR),
-                ]
+            Environment.run(
+                "mypy",
+                "--install-types",
+                "--show-error-codes",
+                "--non-interactive",
+                "--show-absolute-path",
+                "--warn-unreachable",
+                "--warn-return-any",
+                "--warn-redundant-casts",
+                "--no-implicit-optional",
+                "--follow-imports=silent",
+                "--ignore-missing-imports",
+                "--disable-error-code",
+                "attr-defined",
+                "--disable-error-code",
+                "var-annotated",
+                "--disable-error-code",
+                "union-attr",
+                "--junit-xml",
+                str(self._settings.TYPE_REPORT_XML),
+                "--cache-dir",
+                str(self._settings.MYPY_CACHE),
+                str(self._settings.SRC_DIR),
             )
         )
         return self._passed
@@ -1635,7 +1499,7 @@ class TypeCheck:
         if not self.active:
             print(f"Skipping type check report.")
             return
-        
+
         import defusedxml.ElementTree as et
 
         tree = et.parse(self._settings.TYPE_REPORT_XML)
@@ -1691,14 +1555,6 @@ class SecurityCheck:
     The class uses bandit (https://github.com/PyCQA/bandit) for the task. A report is
     generated to document any issues found.
     """
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        if "CHECK_SECURITY" in settings.FEATURES:
-            return [
-                ("bandit", None, None),
-            ]
-        return []
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1756,17 +1612,15 @@ class SecurityCheck:
         self.banditfilename = str(self._settings.SECURITY_BANDIT_JSON)
 
         return not bool(
-            pyexecute(
-                [
-                    "bandit",
-                    "--quiet",
-                    "-r",
-                    str(self._settings.SRC_DIR),
-                    "-f",
-                    "json",
-                    "-o",
-                    self.banditfilename,
-                ]
+            Environment.run(
+                "bandit",
+                "--quiet",
+                "-r",
+                str(self._settings.SRC_DIR),
+                "-f",
+                "json",
+                "-o",
+                self.banditfilename,
             )
         )
 
@@ -1781,7 +1635,7 @@ class SecurityCheck:
         if not self.active:
             print(f"Skipping security check.")
             return
-        
+
         self.clean()
         self.banditfilename = ""
 
@@ -1796,8 +1650,8 @@ class SecurityCheck:
         """
 
         if not self.active:
-            return # Nothing to do.
-        
+            return  # Nothing to do.
+
         issues = Issue.from_bandit_json(self.banditfilename)
         Issue.report(issues, self._settings.REPORT_SECTION_NAME_SECURITY, report)
 
@@ -1819,17 +1673,6 @@ class Test:
     KEY_EXECUTED = "executed_lines"
     KEY_MISSING = "missing_lines"
     KEY_EXCLUDED = "excluded_lines"
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        requirements = []
-    
-        if "RUN_TESTS" in settings.FEATURES:
-            requirements.append(("coverage", None, None))
-
-            if settings.TEST_FRAMEWORK.lower() == "pytest":
-                requirements.append(("pytest", None, None))
-        return requirements
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -1875,7 +1718,7 @@ class Test:
         if not self.active:
             print(f"Skipping testing.")
             return
-        
+
         self.clean()
 
         self.coveragefile = str(self._settings.TEST_COVERAGE_JSON)
@@ -1886,19 +1729,17 @@ class Test:
         testdir = self._settings.TEST_DIR.relative_to(cwd)
 
         self._passed = not bool(
-            pyexecute(
-                [
-                    "coverage",
-                    "run",
-                    "-m",
-                    f"--source={srcdir}",
-                    f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
-                    f"{self._settings.TEST_FRAMEWORK}",
-                    f"{testdir}"
-                ]
+            Environment.run(
+                "coverage",
+                "run",
+                "-m",
+                f"--source={srcdir}",
+                f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
+                f"{self._settings.TEST_FRAMEWORK}",
+                f"{testdir}",
             )
         )
-        pyexecute(["coverage", "json", "--pretty-print", "-o", self.coveragefile])
+        Environment.run("coverage", "json", "--pretty-print", "-o", self.coveragefile)
         return self._passed
 
     def report(self, report: Report):
@@ -1911,7 +1752,7 @@ class Test:
         if not self.active:
             print(f"Skipping test report.")
             return
-        
+
         if not file_has_content(self.coveragefile):
             print(self.coveragefile, "has not content")
             List = Report.List()
@@ -1940,7 +1781,7 @@ class Test:
                 nexcluded = content[self.KEY_SUMMARY][self.KEY_NUM_EXCLUDED]
                 coverage = (
                     str(round(content[self.KEY_SUMMARY][self.KEY_COVERAGE], 2))
-                    + "\u202F%"
+                    + "\u202f%"
                 )
                 table.add(
                     f'<a href="{file.outputpath}">{filename}</a>',
@@ -1966,10 +1807,6 @@ class Build:
         - Build the package.
         - Remove the temporary build artifacts.
     """
-
-    @classmethod
-    def get_requirements(cls, settings: Settings):
-        return Environment.get_requirements(settings)
 
     def __init__(self, settings: Settings) -> None:
         """
@@ -2039,7 +1876,7 @@ class Build:
         if not self.active:
             print(f"Skipping build.")
             return
-        
+
         self.remove()
 
         venv = Environment()
@@ -2397,7 +2234,7 @@ class DocInspector:
             numundoc = len([e for e in self.log if e[self.KEY_FILE] == file])
 
         if numdoc + numundoc == 0:
-            return 0 # Avoid division by zero.
+            return 0  # Avoid division by zero.
 
         return numdoc / (numdoc + numundoc) * 100
 
@@ -2518,7 +2355,7 @@ class Manager:
         if args.cmd not in self.CMD_CHOICES:
             raise Exception(f"Command {args.cmd} does not exist.")
 
-        self._setup(args.yes)
+        Environment.uv("sync") # If .venv does not exist, it will be created.
 
         self._meta = Meta(settings.CONFIGFILE)
         self._badge = Badge(settings)
@@ -2537,62 +2374,11 @@ class Manager:
 
         getattr(self, args.cmd)(args.quiet, args.keep)
 
-    def _setup(self, yesmode: bool):
-        """
-        Installs missing dependencies.
-
-        When running package.py required dependencies can be either installed
-        automatically using the --yes option or, if this option was omitted, the user
-        is asked what to do. This method handles the user interaction and the
-        installation of missing dependencies.
-
-        Args:
-            yesmode: Set to True if the user shall not be asked whether to install any
-                missing dependencies.
-        """
-        requirements = (
-            Environment.get_requirements(self._settings) +
-            StyleCheck.get_requirements(self._settings) +
-            TypeCheck.get_requirements(self._settings) +
-            SecurityCheck.get_requirements(self._settings) +
-            Test.get_requirements(self._settings) + 
-            Documentation.get_requirements(self._settings) + 
-            Build.get_requirements(self._settings) + 
-            Report.get_requirements(self._settings) + 
-            Badge.get_requirements(self._settings)
-        )
-        requirements = list(set(requirements))  # Remove duplicates.
-
-        notinstalled = require(requirements, False) # type: ignore
-
-        if not notinstalled:
-            return
-
-        if yesmode:
-            require(notinstalled, True)
-            return
-
-        print(
-            "The following dependencies are required but not installed: "
-            + ", ".join([e[0] for e in notinstalled])
-        )
-        while True:
-            answer = input("Do you want to install them now (yes/no)? ")
-
-            if answer.lower() in ["yes", "y"]:
-                require(notinstalled, True)
-                break
-            elif answer.lower() in ["no", "n"]:
-                exit()
-            else:
-                print("Invalid input. You need to answer with yes or no.\n")
-
-
-    def _render_report(self, keep:bool = False):
+    def _render_report(self, keep: bool = False):
         self._report = Report(
             self._settings, self._meta.get("name"), self._meta.get("version")
         )
-        
+
         if "GENERATE_DOCUMENTATION" in self._settings.FEATURES:
             self._docinspector.load()
         if "RUN_TESTS" in self._settings.FEATURES:
@@ -2616,8 +2402,7 @@ class Manager:
             self._report.clean()
             self._type.clean()
 
-
-    def report(self, quiet: bool, keep:bool = False):
+    def report(self, quiet: bool, keep: bool = False):
         """
         Exports the results to the given report.
 
@@ -2648,15 +2433,9 @@ class Manager:
 
         self._render_report(keep)
 
-        return (
-            secresult
-            and styleresult
-            and testresult
-            and docresult
-            and typeresult
-        )
+        return secresult and styleresult and testresult and docresult and typeresult
 
-    def build(self, quiet: bool, keep:bool = False) -> None:
+    def build(self, quiet: bool, keep: bool = False) -> None:
         """
         Performs an automated build of the package.
 
@@ -2731,7 +2510,7 @@ class Manager:
 
         self._clean(quiet, keep)
 
-    def doc(self, quiet: bool, keep:bool = False) -> None:
+    def doc(self, quiet: bool, keep: bool = False) -> None:
         """
         Performs automatic documentation generation.
 
@@ -2746,11 +2525,11 @@ class Manager:
         if not quiet:
             print("Generating documentation...")
         self._doc.run()
-        
+
         if not keep:
             self._doc.clean()
 
-    def remove(self, quiet: bool, keep:bool = False) -> None:
+    def remove(self, quiet: bool, keep: bool = False) -> None:
         """
         Removes all files that have been generated for maximum cleanliness of the
         repository. Everything removed can be generated using the manager commands. For
@@ -2764,8 +2543,9 @@ class Manager:
             keep: Keep temporary files (True) or remove them (False).
         """
         if keep:
-            exit("Error: Keep option does not make sense when executing "
-                "remove command.")
+            exit(
+                "Error: Keep option does not make sense when executing remove command."
+            )
 
         if not quiet:
             print("Removing build artifacts...")
@@ -2782,7 +2562,7 @@ class Manager:
         self._type.remove()
         self._clean(quiet, False)
 
-    def _clean(self, quiet: bool, keep:bool = False) -> None:
+    def _clean(self, quiet: bool, keep: bool = False) -> None:
         """
         Remove all intermediate artifacts that might exist in the package.
 
