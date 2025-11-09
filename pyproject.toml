@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "example_package_YOUR_USERNAME_HERE"
-version = "25.11.20"
+version = "25.11.22"
 authors = [{ name = "Example Author", email = "author@example.com" }]
 description = "Place your description here."
 readme = "README.md"
@@ -26,18 +26,7 @@ dependencies = ['requests[security] < 3']
 
 
 [dependency-groups]
-dev = [
-    "sphinx",
-    "pydata_sphinx_theme",
-    "myst_parser[linkify]",
-    "sphinxcontrib-mermaid",
-    "pytest",
-    "mypy",
-    "defusedxml",
-    "bandit",
-    "jinja2",
-    "coverage",
-]
+dev = ["pytest", "defusedxml", "jinja2", "coverage"]
 
 [tool.ruff]
 fix = true           # Apply safe fixes to resolve lint violations.

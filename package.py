@@ -28,22 +28,18 @@ faster typing. ;)
 
 import argparse
 import glob
-import importlib
 import inspect
-import io
 import json
 import math
 import multiprocessing
 import os
 import re
-import runpy
 import shutil
-import sys
-from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Union, Self
+from itertools import chain
 from urllib.parse import quote
 
 
@@ -247,13 +243,15 @@ class Environment:
         return cls.uv("run", *args)
     
     @classmethod
-    def uvx(cls, *args):
+    def uvx(cls, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Optional[str]:
         """ Run a command line tool without installing it. 
         
         Args:
             args: The command to run.
         """
-        return cls.cmd("uvx", *args)
+        with_deps = list(chain.from_iterable(["--with", d] for d in deps or []))
+        from_package = ["--from", from_] if from_ else []
+        return cls.cmd("uvx", *from_package, *with_deps, *args)
 
     @classmethod
     def build(cls, outdir: Union[Path, str]) -> Optional[str]:
@@ -335,19 +333,6 @@ def mkdirs_if_not_exists(path: Union[str, Path]):
     """
     if not os.path.isdir(str(path)):
         os.makedirs(str(path))
-
-
-def get_program_path(prog: str):
-    """Return the path to the given program.
-
-    Args:
-        prog: The name of the program to find.
-    """
-    spec = importlib.util.find_spec(prog)
-    try:
-        return Path(spec.loader.path)  # type: ignore
-    except AttributeError:
-        return None
 
 
 class Report:
@@ -1271,7 +1256,7 @@ class Documentation:
 
         # Generate new documentation
         step1result = not bool(
-            Environment.run(
+            Environment.uvx(
                 "sphinx-apidoc",
                 "-e",
                 "-q",
@@ -1282,17 +1267,24 @@ class Documentation:
                 "-o",
                 str(self._settings.DOCUMENTATION_SOURCE_DIR),
                 str(self._settings.SRC_DIR),
+                from_="sphinx"
             )
         )
 
         step2result = not bool(
-            Environment.run(
+            Environment.uvx(
                 "sphinx-build",
                 "-q",
                 "-b",
                 "html",
                 str(self._settings.DOCUMENTATION_ROOT_DIR),
                 str(self._settings.DOCUMENTATION_HTML_DIR),
+                deps=[
+                    "pydata_sphinx_theme", 
+                    "myst_parser[linkify]", 
+                    "sphinxcontrib-mermaid"
+                ],
+                from_="sphinx"
             )
         )
         self._settings.DOCUMENTATION_HTML_DIR.mkdir(parents=True, exist_ok=True)
@@ -1462,7 +1454,7 @@ class TypeCheck:
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
 
         self._passed = not bool(
-            Environment.run(
+            Environment.uvx(
                 "mypy",
                 "--install-types",
                 "--show-error-codes",
@@ -1612,7 +1604,7 @@ class SecurityCheck:
         self.banditfilename = str(self._settings.SECURITY_BANDIT_JSON)
 
         return not bool(
-            Environment.run(
+            Environment.uvx(
                 "bandit",
                 "--quiet",
                 "-r",
