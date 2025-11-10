@@ -194,22 +194,18 @@ class Settings:
 class Environment:
     HAS_UV = None
 
-    @classmethod
-    def get_uv(cls) -> bool:
+    def get_uv(self) -> bool:
         """Returns True, if uv package manager is available. False, otherwise."""
-        if cls.HAS_UV is None:
-            cls.HAS_UV = cls.cmd("uv", "self", "version") is not None
-        if cls.HAS_UV is False:
-            cls.cmd("pip", "install", "uv")
-        return cls.HAS_UV
+        if Environment.HAS_UV is None:
+            Environment.HAS_UV = self.cmd("uv", "self", "version") is not None
+        if Environment.HAS_UV is False:
+            Environment.cmd("pip", "install", "uv")
+        return Environment.HAS_UV
 
-    def __init__(self):
-        self._packages = [
-            e.split("==")[0] for e in self.uv("pip", "freeze").splitlines()
-        ]
+    def __init__(self, silent: bool = True):
+        self._silent = silent
 
-    @classmethod
-    def cmd(cls, *args) -> Optional[str]:
+    def cmd(self, *args) -> Optional[str]:
         """Run a command.
 
         Args:
@@ -218,32 +214,31 @@ class Environment:
         from subprocess import run, CalledProcessError
 
         try:
-            process = run(args, shell=False, check=True, capture_output=True)
-            return process.stdout.decode("utf-8") if process.returncode == 0 else None
+            prc = run(args, shell=False, check=True, capture_output=self._silent)
+            if self._silent:
+                return prc.stdout.decode("utf-8") if prc.returncode == 0 else None
+            return bool(prc.returncode == 0)
         except (FileNotFoundError, CalledProcessError):
             return None
 
-    @classmethod
-    def uv(cls, *args) -> Optional[str]:
+    def uv(self, *args) -> Optional[str]:
         """Run a uv command.
 
         Args:
             args: The command to run.
         """
-        cls.get_uv()
-        return cls.cmd("uv", *args)
+        self.get_uv()
+        return self.cmd("uv", *args)
 
-    @classmethod
-    def run(cls, *args) -> Optional[str]:
+    def run(self, *args) -> Optional[str]:
         """Run a uv command, preferably using uv. Otherwise, use pip.
 
         Args:
             args: The command to run.
         """
-        return cls.uv("run", *args)
+        return self.uv("run", "-q", *args)
     
-    @classmethod
-    def uvx(cls, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Optional[str]:
+    def uvx(self, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Optional[str]:
         """ Run a command line tool without installing it. 
         
         Args:
@@ -251,12 +246,11 @@ class Environment:
         """
         with_deps = list(chain.from_iterable(["--with", d] for d in deps or []))
         from_package = ["--from", from_] if from_ else []
-        return cls.cmd("uvx", *from_package, *with_deps, *args)
+        return self.cmd("uvx", *from_package, *with_deps, *args)
 
-    @classmethod
-    def build(cls, outdir: Union[Path, str]) -> Optional[str]:
+    def build(self, outdir: Union[Path, str]) -> Optional[str]:
         """Run build command, preferably using uv. Otherwise, use the original build."""
-        return cls.uv("build", "-o", str(Path(outdir).absolute()))
+        return self.uv("build", "-o", str(Path(outdir).absolute()))
 
     def __contains__(self, package: str) -> bool:
         return package in self._packages
@@ -1256,7 +1250,7 @@ class Documentation:
 
         # Generate new documentation
         step1result = not bool(
-            Environment.uvx(
+            Environment().uvx(
                 "sphinx-apidoc",
                 "-e",
                 "-q",
@@ -1272,7 +1266,7 @@ class Documentation:
         )
 
         step2result = not bool(
-            Environment.uvx(
+            Environment().uvx(
                 "sphinx-build",
                 "-q",
                 "-b",
@@ -1356,9 +1350,9 @@ class StyleCheck:
         self.checkfile = str(settings.STYLE_REPORT_JSON)
         mkdirs_if_not_exists(settings.REPORT_DIR)
 
-        Environment.uv("format", "-q", settings.SRC_DIR, settings.TEST_DIR)
+        Environment().uv("format", "-q", settings.SRC_DIR, settings.TEST_DIR)
         self._passed = not bool(
-            Environment.uv(
+            Environment().uv(
                 "format",
                 "--check",
                 "-q",
@@ -1454,7 +1448,7 @@ class TypeCheck:
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
 
         self._passed = not bool(
-            Environment.uvx(
+            Environment().uvx(
                 "mypy",
                 "--install-types",
                 "--show-error-codes",
@@ -1604,7 +1598,7 @@ class SecurityCheck:
         self.banditfilename = str(self._settings.SECURITY_BANDIT_JSON)
 
         return not bool(
-            Environment.uvx(
+            Environment().uvx(
                 "bandit",
                 "--quiet",
                 "-r",
@@ -1721,17 +1715,18 @@ class Test:
         testdir = self._settings.TEST_DIR.relative_to(cwd)
 
         self._passed = not bool(
-            Environment.run(
+            Environment(False).run(
                 "coverage",
                 "run",
                 "-m",
                 f"--source={srcdir}",
                 f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
                 f"{self._settings.TEST_FRAMEWORK}",
+                f"-q",
                 f"{testdir}",
             )
         )
-        Environment.run("coverage", "json", "--pretty-print", "-o", self.coveragefile)
+        Environment().run("coverage", "json", "--pretty-print", "-o", self.coveragefile)
         return self._passed
 
     def report(self, report: Report):
@@ -1830,11 +1825,11 @@ class Build:
         self.clean()
 
         for f in glob.glob(str(distdir / distfiles) + "*.*"):
-            print("removing ", f)
+            print("removing ", Path(f).relative_to(distdir))
             remove_if_exists(f)
 
         for f in glob.glob(str(distdir / self.packagename) + "*.*"):
-            print("removing ", f)
+            print("removing ", Path(f).relative_to(distdir))
             remove_if_exists(f)
 
         remove_if_empty(distdir)
@@ -1871,8 +1866,7 @@ class Build:
 
         self.remove()
 
-        venv = Environment()
-        self._passed = venv.build(self._settings.DISTRIBUTABLE_DIR) is not None
+        self._passed = Environment(False).build(self._settings.DISTRIBUTABLE_DIR) is not None
         return self._passed
 
 
@@ -2347,7 +2341,7 @@ class Manager:
         if args.cmd not in self.CMD_CHOICES:
             raise Exception(f"Command {args.cmd} does not exist.")
 
-        Environment.uv("sync") # If .venv does not exist, it will be created.
+        Environment().uv("sync") # If .venv does not exist, it will be created.
 
         self._meta = Meta(settings.CONFIGFILE)
         self._badge = Badge(settings)

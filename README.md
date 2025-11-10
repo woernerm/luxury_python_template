@@ -6,7 +6,7 @@
 
 <p align="center">
     <img src="https://img.shields.io/badge/build-passed-brightgreen" />
-    <img src="https://img.shields.io/badge/test-passed-brightgreen" />
+    <img src="https://img.shields.io/badge/test-failed-red" />
     <img src="https://img.shields.io/badge/test_coverage-100%25-brightgreen" />
     <img src="https://img.shields.io/badge/doc_coverage-100%25-brightgreen" />
     <img src="https://img.shields.io/badge/vulnerabilities-0-brightgreen" />
