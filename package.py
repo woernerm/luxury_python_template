@@ -35,6 +35,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import subprocess as sub
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -194,6 +195,17 @@ class Settings:
 class Environment:
     HAS_UV = None
 
+    class Result:
+        def __init__(self, process: Optional[sub.CompletedProcess] = None):
+            self.stdout = None
+            self.stderr = None
+            self.success = False
+
+            if process is not None:
+                self.stdout = process.stdout.decode("utf-8") if process.stdout else None
+                self.stderr = process.stderr.decode("utf-8") if process.stderr else None
+                self.success = bool(process.returncode == 0)
+
     def get_uv(self) -> bool:
         """Returns True, if uv package manager is available. False, otherwise."""
         if Environment.HAS_UV is None:
@@ -205,23 +217,20 @@ class Environment:
     def __init__(self, silent: bool = True):
         self._silent = silent
 
-    def cmd(self, *args) -> Optional[str]:
+    def cmd(self, *args) -> Result:
         """Run a command.
 
         Args:
             args: The command to run.
         """
-        from subprocess import run, CalledProcessError
 
         try:
-            prc = run(args, shell=False, check=True, capture_output=self._silent)
-            if self._silent:
-                return prc.stdout.decode("utf-8") if prc.returncode == 0 else None
-            return bool(prc.returncode == 0)
-        except (FileNotFoundError, CalledProcessError):
-            return None
+            prc = sub.run(args, shell=False, check=True, capture_output=self._silent)
+            return Environment.Result(prc)
+        except (FileNotFoundError, sub.CalledProcessError):
+            return Environment.Result(None)
 
-    def uv(self, *args) -> Optional[str]:
+    def uv(self, *args) -> Result:
         """Run a uv command.
 
         Args:
@@ -230,7 +239,7 @@ class Environment:
         self.get_uv()
         return self.cmd("uv", *args)
 
-    def run(self, *args) -> Optional[str]:
+    def run(self, *args) -> Result:
         """Run a uv command, preferably using uv. Otherwise, use pip.
 
         Args:
@@ -238,7 +247,7 @@ class Environment:
         """
         return self.uv("run", "-q", *args)
     
-    def uvx(self, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Optional[str]:
+    def uvx(self, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Result:
         """ Run a command line tool without installing it. 
         
         Args:
@@ -248,7 +257,7 @@ class Environment:
         from_package = ["--from", from_] if from_ else []
         return self.cmd("uvx", *from_package, *with_deps, *args)
 
-    def build(self, outdir: Union[Path, str]) -> Optional[str]:
+    def build(self, outdir: Union[Path, str]) -> Result:
         """Run build command, preferably using uv. Otherwise, use the original build."""
         return self.uv("build", "-o", str(Path(outdir).absolute()))
 
@@ -1249,38 +1258,34 @@ class Documentation:
         self.remove()
 
         # Generate new documentation
-        step1result = not bool(
-            Environment().uvx(
-                "sphinx-apidoc",
-                "-e",
-                "-q",
-                "-M",
-                "-f",
-                "-t",
-                str(self._settings.DOCUMENTATION_TEMPLATE_DIR),
-                "-o",
-                str(self._settings.DOCUMENTATION_SOURCE_DIR),
-                str(self._settings.SRC_DIR),
-                from_="sphinx"
-            )
-        )
+        step1result = Environment().uvx(
+            "sphinx-apidoc",
+            "-e",
+            "-q",
+            "-M",
+            "-f",
+            "-t",
+            str(self._settings.DOCUMENTATION_TEMPLATE_DIR),
+            "-o",
+            str(self._settings.DOCUMENTATION_SOURCE_DIR),
+            str(self._settings.SRC_DIR),
+            from_="sphinx"
+        ).success
 
-        step2result = not bool(
-            Environment().uvx(
-                "sphinx-build",
-                "-q",
-                "-b",
-                "html",
-                str(self._settings.DOCUMENTATION_ROOT_DIR),
-                str(self._settings.DOCUMENTATION_HTML_DIR),
-                deps=[
-                    "pydata_sphinx_theme", 
-                    "myst_parser[linkify]", 
-                    "sphinxcontrib-mermaid"
-                ],
-                from_="sphinx"
-            )
-        )
+        step2result = Environment().uvx(
+            "sphinx-build",
+            "-q",
+            "-b",
+            "html",
+            str(self._settings.DOCUMENTATION_ROOT_DIR),
+            str(self._settings.DOCUMENTATION_HTML_DIR),
+            deps=[
+                "pydata_sphinx_theme", 
+                "myst_parser[linkify]", 
+                "sphinxcontrib-mermaid"
+            ],
+            from_="sphinx"
+        ).success
         self._settings.DOCUMENTATION_HTML_DIR.mkdir(parents=True, exist_ok=True)
         (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").touch()
         self._passed = step1result and step2result
@@ -1351,18 +1356,16 @@ class StyleCheck:
         mkdirs_if_not_exists(settings.REPORT_DIR)
 
         Environment().uv("format", "-q", settings.SRC_DIR, settings.TEST_DIR)
-        self._passed = not bool(
-            Environment().uv(
-                "format",
-                "--check",
-                "-q",
-                "--output-format=json",
-                "--output-file",
-                self.checkfile,
-                settings.SRC_DIR,
-                settings.TEST_DIR,
-            )
-        )
+        self._passed = Environment().uv(
+            "format",
+            "--check",
+            "-q",
+            "--output-format=json",
+            "--output-file",
+            self.checkfile,
+            settings.SRC_DIR,
+            settings.TEST_DIR,
+        ).success
         return self._passed
 
     def report(self, report: Report):
@@ -1447,32 +1450,30 @@ class TypeCheck:
 
         mkdirs_if_not_exists(self._settings.REPORT_DIR)
 
-        self._passed = not bool(
-            Environment().uvx(
-                "mypy",
-                "--install-types",
-                "--show-error-codes",
-                "--non-interactive",
-                "--show-absolute-path",
-                "--warn-unreachable",
-                "--warn-return-any",
-                "--warn-redundant-casts",
-                "--no-implicit-optional",
-                "--follow-imports=silent",
-                "--ignore-missing-imports",
-                "--disable-error-code",
-                "attr-defined",
-                "--disable-error-code",
-                "var-annotated",
-                "--disable-error-code",
-                "union-attr",
-                "--junit-xml",
-                str(self._settings.TYPE_REPORT_XML),
-                "--cache-dir",
-                str(self._settings.MYPY_CACHE),
-                str(self._settings.SRC_DIR),
-            )
-        )
+        self._passed = Environment().uvx(
+            "mypy",
+            "--install-types",
+            "--show-error-codes",
+            "--non-interactive",
+            "--show-absolute-path",
+            "--warn-unreachable",
+            "--warn-return-any",
+            "--warn-redundant-casts",
+            "--no-implicit-optional",
+            "--follow-imports=silent",
+            "--ignore-missing-imports",
+            "--disable-error-code",
+            "attr-defined",
+            "--disable-error-code",
+            "var-annotated",
+            "--disable-error-code",
+            "union-attr",
+            "--junit-xml",
+            str(self._settings.TYPE_REPORT_XML),
+            "--cache-dir",
+            str(self._settings.MYPY_CACHE),
+            str(self._settings.SRC_DIR),
+        ).success
         return self._passed
 
     def report(self, report: Report):
@@ -1597,18 +1598,16 @@ class SecurityCheck:
         # Create json for parsing by package.py.
         self.banditfilename = str(self._settings.SECURITY_BANDIT_JSON)
 
-        return not bool(
-            Environment().uvx(
-                "bandit",
-                "--quiet",
-                "-r",
-                str(self._settings.SRC_DIR),
-                "-f",
-                "json",
-                "-o",
-                self.banditfilename,
-            )
-        )
+        return Environment().uvx(
+            "bandit",
+            "--quiet",
+            "-r",
+            str(self._settings.SRC_DIR),
+            "-f",
+            "json",
+            "-o",
+            self.banditfilename,
+        ).success
 
     def run(self) -> bool:
         """
@@ -1714,18 +1713,16 @@ class Test:
         srcdir = srcdir_abs.relative_to(cwd)
         testdir = self._settings.TEST_DIR.relative_to(cwd)
 
-        self._passed = not bool(
-            Environment(False).run(
-                "coverage",
-                "run",
-                "-m",
-                f"--source={srcdir}",
-                f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
-                f"{self._settings.TEST_FRAMEWORK}",
-                f"-q",
-                f"{testdir}",
-            )
-        )
+        self._passed = Environment(False).run(
+            "coverage",
+            "run",
+            "-m",
+            f"--source={srcdir}",
+            f"--omit={self._settings.COVERAGE_OMIT_PATTERN}",
+            f"{self._settings.TEST_FRAMEWORK}",
+            f"-q",
+            f"{testdir}",
+        ).success
         Environment().run("coverage", "json", "--pretty-print", "-o", self.coveragefile)
         return self._passed
 
@@ -1866,7 +1863,9 @@ class Build:
 
         self.remove()
 
-        self._passed = Environment(False).build(self._settings.DISTRIBUTABLE_DIR) is not None
+        self._passed = Environment(False).build(
+            self._settings.DISTRIBUTABLE_DIR
+        ).success
         return self._passed
 
 
@@ -2439,6 +2438,8 @@ class Manager:
         SECURITY = "vulnerabilities"
         TEST_PASSED = "test_passed"
         BUILD_PASSED = "build_passed"
+        TEST = "test"
+        BUILD = "build"
 
         print(f"Setting version to {self._version}.")
         configregex = r"(version[ ]*=)[ ]*\"[^\n]*\""
@@ -2457,25 +2458,25 @@ class Manager:
             totals[TEST_COVERAGE] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_TEST
             )
-            self._badge.set("test_coverage", totals[TEST_COVERAGE])
+            self._badge.set(TEST_COVERAGE, totals[TEST_COVERAGE])
         if "UPDATE_DOCCOVERAGE_BADGE" in self._settings.FEATURES:
             totals[DOC_COVERAGE] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_DOCUMENTATION
             )
-            self._badge.set("doc_coverage", totals[DOC_COVERAGE])
+            self._badge.set(DOC_COVERAGE, totals[DOC_COVERAGE])
         if "UPDATE_SECURITY_BADGE" in self._settings.FEATURES:
             totals[SECURITY] = self._report.get_total(
                 self._settings.REPORT_SECTION_NAME_SECURITY
             )
-            self._badge.set("vulnerabilities", totals[SECURITY])
+            self._badge.set(SECURITY, totals[SECURITY])
         if "UPDATE_TEST_BADGE" in self._settings.FEATURES:
             totals[TEST_PASSED] = self._test.ispassed()
-            self._badge.set("test", totals[TEST_PASSED])
+            self._badge.set(TEST, totals[TEST_PASSED])
 
         # For including the result in the build, assume that build was successful.
         # Otherwise, it will not be included in a non-existing (failed) build anyway.
         if "UPDATE_BUILD_BADGE" in self._settings.FEATURES:
-            self._badge.set("build", True)
+            self._badge.set(BUILD, True)
 
         if not quiet:
             print("Building wheels...")

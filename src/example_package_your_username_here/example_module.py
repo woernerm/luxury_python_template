@@ -14,9 +14,6 @@ def example_function(myinput: int, *args, **kwargs) -> int:
 
     Args:
         myinput: The parameter to return.
-
-    Returns:
-        The given parameter without change.
     """
 
     return myinput

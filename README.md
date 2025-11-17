@@ -6,7 +6,7 @@
 
 <p align="center">
     <img src="https://img.shields.io/badge/build-passed-brightgreen" />
-    <img src="https://img.shields.io/badge/test-failed-red" />
+    <img src="https://img.shields.io/badge/test-passed-brightgreen" />
     <img src="https://img.shields.io/badge/test_coverage-100%25-brightgreen" />
     <img src="https://img.shields.io/badge/doc_coverage-100%25-brightgreen" />
     <img src="https://img.shields.io/badge/vulnerabilities-0-brightgreen" />
@@ -23,29 +23,37 @@
 <br />
 
 # Introduction
-There are great tools available to automatically style, analyze and build your code. 
+There are great tools available to automatically style, analyze, and build your code. 
 They help you deliver better products faster. However, you have to learn how they work, 
-configure them and clean up after them. It’s easy to forgo this tedious work in the 
-beginning when all you can think about is the bright idea behind your new python 
+configure them, and clean up after them. It’s easy to forgo this tedious work in the 
+beginning when all you can think about is the bright idea behind your new Python 
 package. Will you do that later on? Probably not, because then chances are high that you 
-get hundreds of complaints from these tools and fixing them all will likely set you back 
-for weeks. Its way more fun to focus on new features anyway.  <br />
+get hundreds of complaints from these tools, and fixing them all will likely set you back 
+for weeks. It's way more fun to focus on new features anyway.  <br />
 
 Writing better code would be so much easier if any new project, regardless of whether it 
-starts out as an afternoon experiment or the next big thing, would already include all 
+starts out as an afternoon experiment or the next big thing, already included all 
 of the bells and whistles that professional packages use. For free and without having to 
 register yourself for yet another online service.  <br />
 
-With the luxury python template, you can have all that right from the start! It is very 
+With the luxury Python template, you can have all that right from the start! It is very 
 opinionated, meaning the only thing you have to think about is the project name. It 
-comes with a single, zero configuration command-line tool. Its options are intentionally 
-limited and therefore easy to remember. You get everything with a single call of:
+comes with a single, zero-configuration command-line tool. Its options are intentionally 
+limited and therefore easy to remember. 
 
+# Requirements
+- Python 3.9 or higher
+- [uv package manager](https://docs.astral.sh/uv/)
+
+# Quick Guide
+You get everything with a single call of:
 ```Shell
-python package.py build
+uv run package.py build
 ```
+That's it! You don't even have to create a virtual environment. The above command 
+takes care of that. It performs the following tasks for you:
 
-This includes:
+- Creating a virtual environment.
 - Installing all needed dependencies.
 - Formatting and linting your code with [ruff](https://docs.astral.sh/ruff/).
 - Static type analysis with [MyPy](https://github.com/python/mypy).
@@ -59,14 +67,36 @@ markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 - Building wheel files and incrementing the version number according to 
 [calendar versioning](https://calver.org/).
 - Generating badges with the most important metrics for your repository like the ones 
-shown above using [pybadges](https://github.com/google/pybadges)
+shown above using [shields.io](https://shields.io/)
 - Removing temporary files and folders.
 
-## Supported Package Managers
-The luxury python template supports both pip and the super fast [uv](https://docs.astral.sh/uv/).
-If uv is installed, package.py will default to uv. Otherwise, pip is used.
+## Specialized Commands
 
-## Example Report
+**Report Only** - Generate the report without building the package:
+```Shell
+uv run package.py report
+```
+
+**Documentation Only** - Generate the documentation without building the package or 
+generating a report:
+```Shell    
+uv run package.py doc
+```
+
+**Remove Generated Files** - Remove all generated files and folders including the wheel 
+files, documentation, and 
+report:
+```Shell
+uv run package.py remove
+```
+
+**Get Help** - If you want to see all available commands and options, run:
+
+```Shell
+uv run package.py --help
+```
+
+# Example Report
 The `package.py` tool that comes with the template can generate a single, 
 beautiful report that summarizes the results of the above-mentioned tools. Want an example?
 Have a look at the following, problematic code:
@@ -83,7 +113,7 @@ def getHash(password: str):
     This is an example function for encrypting passwords.
 
     Args:
-        pw: The password to be encrypted.
+        password: The password to be encrypted.
     """
 
     return hashlib.md5(str(password).encode("utf-8"))
@@ -96,63 +126,11 @@ In this example, the code is stored in `src/bad_example.py`. If you run
 `python package.py build` you will get the report. 
 [Have a look!](https://woernerm.github.io/luxury_python_template/)
 
-## Quick Guide
-1. The template follows the instructions of the 
-[PyPa packaging tutorial](https://packaging.python.org/tutorials/packaging-projects/). 
-So, it should look familiar to most people. Using the template is easy. Just click the 
-green "Use this template" button above (you need to be signed into GitHub) to create 
-your own repository with all the files automatically copied from this template. 
-Alternatively, you may just download / clone a copy of the files.
-2. Provide some information about your project in setup.cfg. You can find details about 
-the fields in the
-[PyPa packaging tutorial](https://packaging.python.org/tutorials/packaging-projects/#configuring-metadata).
-You may leave the version as it is. It is set automatically by `package.py`.
-3. Rename `src/pythontemplate` to whatever you like. The name determines how to import 
-the package in a python script. You should therefore omit spaces, underscores, and 
-dashes. You can add as many of these top-level folders as you like.
+# Supported Package Managers
+The luxury Python template supports the super-fast [uv](https://docs.astral.sh/uv/). 
+Pip is no longer supported, because the author of this template got tired of waiting for 
+the virtual environment to be created. Yes, the template is very opinionated 😉.
 
-### Commands
-You can access the help of `package.py` by running:
-````Shell
-python package.py --help
-````
-
-As explained above, you can build your wheel files and get a detailed report about your
-code by running:
-
-```Shell
-python package.py build
-```
-The build command is also the only one that will update the badges. If you only want the
-detailed report, just run:
-
-```Shell
-python package.py report
-```
-
-If you want to generate just the documentation and not get any report, use:
-
-```Shell
-python package.py doc
-```
-
-If you want to remove the wheel files, documentation, and report:
-
-```Shell
-python package.py remove
-```
-
-## Frequently Asked Questions
-If you run the build or report command, you may get the following error:
-```
-requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Read timed out.
-```
-This is because checking for dependency vulnerabilities using 
-[Safety](https://github.com/pyupio/safety) requires a connection to a database. If you
-are getting this error, it means that the database is not reachable. This may happen
-either because your internet connection encountered some issues, or the database is
-currently unavailable for whatever reason.
-
-## License
+# License
 The package is distributed under Apache License 2.0. You can use it for anything you 
-want! Attribution would be nice, but you do not have to.  ;)
+want! Attribution would be nice, but you do not have to.
