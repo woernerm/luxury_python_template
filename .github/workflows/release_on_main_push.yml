@@ -23,8 +23,8 @@ jobs:
           with:
             enable-cache: true
             cache-dependency-glob: |
-                "**/package.py"
-                "**/pyproject.toml"
+                "package.py"
+                "pyproject.toml"
 
         - name: Build
           run: uv run package.py build
