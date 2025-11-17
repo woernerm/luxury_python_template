@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "example_package_YOUR_USERNAME_HERE"
-version = "25.11.38"
+version = "25.11.39"
 authors = [{ name = "Example Author", email = "author@example.com" }]
 description = "Place your description here."
 readme = "README.md"
