@@ -4,11 +4,11 @@ build-backend = "uv_build"
 
 [project]
 name = "example_package_YOUR_USERNAME_HERE"
-version = "25.11.35"
+version = "25.11.36"
 authors = [{ name = "Example Author", email = "author@example.com" }]
 description = "Place your description here."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 classifiers = [

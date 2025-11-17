@@ -41,18 +41,18 @@ opinionated, meaning the only thing you have to think about is the project name.
 comes with a single, zero-configuration command-line tool. Its options are intentionally 
 limited and therefore easy to remember. 
 
-# Requirements
-- Python 3.9 or higher
-- [uv package manager](https://docs.astral.sh/uv/)
-
 # Quick Guide
-You get everything with a single call of:
+Make sure you have the [uv package manager](https://docs.astral.sh/uv/) installed. Then, 
+you get everything with a single call of:
 ```Shell
 uv run package.py build
 ```
-That's it! You don't even have to create a virtual environment. The above command 
-takes care of that. It performs the following tasks for you:
+That's it! You don't have to create a virtual environment. You don't even have to 
+install Python! The above command takes care of that (thanks to uv). It performs the 
+following tasks for you:
 
+- Discovering an installed Python version or downloading one on the fly to satisfy the 
+Python version requirement defined in `pyproject.toml`. 
 - Creating a virtual environment.
 - Installing all needed dependencies.
 - Formatting and linting your code with [ruff](https://docs.astral.sh/ruff/).
@@ -125,11 +125,6 @@ print(getHash(12345))
 In this example, the code is stored in `src/bad_example.py`. If you run 
 `python package.py build` you will get the report. 
 [Have a look!](https://woernerm.github.io/luxury_python_template/)
-
-# Supported Package Managers
-The luxury Python template supports the super-fast [uv](https://docs.astral.sh/uv/). 
-Pip is no longer supported, because the author of this template got tired of waiting for 
-the virtual environment to be created. Yes, the template is very opinionated 😉.
 
 # License
 The package is distributed under Apache License 2.0. You can use it for anything you 
