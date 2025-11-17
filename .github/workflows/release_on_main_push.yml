@@ -26,28 +26,8 @@ jobs:
                 "**/package.py"
                 "**/pyproject.toml"
 
-        - name: UV Version
-          run: uv self version
-          env:
-            UV_SYSTEM_PYTHON: 1
-  
-        - name: "Set up Python"
-          uses: actions/setup-python@v6
-          with:
-            python-version-file: "pyproject.toml"
-
-        - name: Install requirements
-          run: uv pip install -r requirements_dev.txt
-          env:
-            UV_SYSTEM_PYTHON: 1
-
         - name: Build
-          run: python package.py build --yes
-
-        - name: UV Build
-          run: uv build
-          env:
-            UV_SYSTEM_PYTHON: 1
+          run: uv run package.py build
 
         - name: Create Github Release
           run: |
@@ -67,13 +47,16 @@ jobs:
             git add -f docs/*
             git add -f docs/.nojekyll
             git add pyproject.toml
-            git commit -m "[skip build] Commit docs of version $PACKAGE_BUILD_VERSION." \
-              -m "Metrics:" \
-              -m "  - Build: $PACKAGE_BUILD_PASSED" \
-              -m "  - Test: $PACKAGE_TEST_PASSED" \
-              -m "  - Test Coverage: $PACKAGE_TEST_COVERAGE %" \
-              -m "  - Doc Coverage: $PACKAGE_DOC_COVERAGE %" \
-              -m "  - Vulnerabilities: $PACKAGE_VULNERABILITIES"
+            git commit -F- <<EOF
+            [skip build] Commit docs of version $PACKAGE_BUILD_VERSION.
+            
+            Metrics:
+              - Build: $PACKAGE_BUILD_PASSED
+              - Test: $PACKAGE_TEST_PASSED
+              - Test Coverage: $PACKAGE_TEST_COVERAGE %
+              - Doc Coverage: $PACKAGE_DOC_COVERAGE %
+              - Vulnerabilities: $PACKAGE_VULNERABILITIES
+            EOF
             git push origin
   
         - name: Minimize uv cache
