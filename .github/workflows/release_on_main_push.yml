@@ -43,7 +43,7 @@ jobs:
         - name: Push docs to repository.
           run: |
             git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
             git add -f docs/*
             git add -f docs/.nojekyll
             git add pyproject.toml

@@ -64,6 +64,8 @@ evaluating test coverage with [Coverage.py](https://github.com/nedbat/coveragepy
 markdown support from [MySt](https://myst-parser.readthedocs.io/en/latest/).
 - Checking for undocumented code (built into `package.py`).
 - Generating a single, beautiful report for all of the above with [Pico.css](https://picocss.com/).
+- Generate a `cov.xml` file so that your IDE can visualize what lines are (not) covered. 
+  For this, you can use tools like [Coverage Gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) for VSCode.
 - Building wheel files and incrementing the version number according to 
 [calendar versioning](https://calver.org/).
 - Generating badges with the most important metrics for your repository like the ones 

@@ -131,7 +131,10 @@ class Settings:
     REPORT_HTML = REPORT_DIR / "report.html"
 
     # Directory for placing additional files used by the report.
-    REPORT_FILES_DIR = REPORT_DIR / "files"
+    REPORT_SOURCES_DIR = REPORT_DIR / "sources"
+
+    # Directory for placing attachments belonging to the report.
+    REPORT_ATTACHMENTS_DIR = REPORT_DIR / "attachments"
 
     # Name of the report section about code style.
     REPORT_SECTION_NAME_STYLE = "Style"
@@ -156,6 +159,9 @@ class Settings:
 
     # The file in which test coverage information is stored (for parsing by package.py).
     TEST_COVERAGE_JSON = TMP_DIR / "coverage.json"
+
+    # File in which test coverage information is stored (for parsing by other tools).
+    TEST_COVERAGE_XML = REPORT_DIR / "cov.xml"
 
     # The file in which bandit's results are stored (for parsing by package.py).
     SECURITY_BANDIT_JSON = TMP_DIR / "bandit.json"
@@ -223,7 +229,7 @@ class Environment:
         Args:
             args: The command to run.
         """
-
+        args = [str(a) for a in args]
         try:
             prc = sub.run(args, shell=False, check=True, capture_output=self._silent)
             return Environment.Result(prc)
@@ -317,7 +323,7 @@ def remove_if_empty(path: Union[Path, str]):
         shutil.rmtree(str(path))
 
 
-def file_has_content(path: Union[Path, str]):
+def has_content(path: Union[Path, str]):
     if not os.path.isfile(str(path)):
         return False  # File does not exist.
     size = 0
@@ -325,17 +331,6 @@ def file_has_content(path: Union[Path, str]):
         f.seek(0, os.SEEK_END)
         size = f.tell()
     return size > 0  # Has the file any content?
-
-
-def mkdirs_if_not_exists(path: Union[str, Path]):
-    """
-    Creates the given folder path, if it does not exist already.
-
-    Args:
-        path: The folder path that shall be created.
-    """
-    if not os.path.isdir(str(path)):
-        os.makedirs(str(path))
 
 
 class Report:
@@ -665,7 +660,8 @@ class Report:
 
         self.active = "GENERATE_REPORT" in settings.FEATURES
         self._sections = {}
-        self._files = {}
+        self._sources = {}
+        self._attachments = set()
         self._appname = appname
         self._version = version
         self._settings = settings
@@ -681,6 +677,9 @@ class Report:
             self._maintemplate = self._environment.get_template("main.jinja")
             self._filetemplate = self._environment.get_template("file.jinja")
 
+    def attach(self, file: Path):
+        self._attachments.add(file)
+
     def render(self):
         """
         Exports the report as HTML files.
@@ -694,14 +693,19 @@ class Report:
         outputdir = Path(self._settings.REPORT_HTML).parent
 
         # Create output directories.
-        mkdirs_if_not_exists(outputdir)
-        mkdirs_if_not_exists(self._settings.REPORT_FILES_DIR)
+        outputdir.mkdir(parents=True, exist_ok=True)
+        self._settings.REPORT_SOURCES_DIR.mkdir(parents=True, exist_ok=True)
+        self._settings.REPORT_ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
         # Copy style sheets to output directory.
         for f in glob.glob(str(self._settings.REPORT_TEMPLATE_DIR / "*.css")):
-            shutil.copy(f, self._settings.REPORT_FILES_DIR)
+            shutil.copy(f, self._settings.REPORT_SOURCES_DIR)
 
-        styledir = self._settings.REPORT_FILES_DIR.absolute()
+        # Copy attachments
+        for f in self._attachments:
+            shutil.copy(f, self._settings.REPORT_ATTACHMENTS_DIR)
+
+        styledir = self._settings.REPORT_SOURCES_DIR.absolute()
 
         filelist = [str(self._settings.REPORT_HTML.absolute())]
         # Write main report file.
@@ -717,7 +721,7 @@ class Report:
             f.write(output.encode("utf-8"))
 
         # Write files containing code snippets.
-        for file in self._files.values():
+        for file in self._sources.values():
             filename = (outputdir / Path(file.outputpath)).absolute()
             filedir = filename.parent
             filelist.append(str(filename.absolute()))
@@ -738,7 +742,7 @@ class Report:
         # the report opened in a browser. The user then just needs to refresh the page.
         # Deleting the folder is not allowed when the report has been opened in a
         # browser, because the file is then denoted as "in use by another process".
-        for existing in glob.glob(str(self._settings.REPORT_FILES_DIR / "*.html")):
+        for existing in glob.glob(str(self._settings.REPORT_SOURCES_DIR / "*.html")):
             if str(Path(existing).absolute()) not in filelist:
                 remove_if_exists(existing)
 
@@ -754,19 +758,19 @@ class Report:
             data: The data representing the section, e.g. an instance of Report.List.
         """
         if isinstance(data, self.File):
-            index = len(self._files)
+            index = len(self._sources)
             ident = data.identifier()
 
             # Avoid multiple files with the same content.
-            if ident in self._files:
-                data.outputpath = self._files[ident].outputpath
+            if ident in self._sources:
+                data.outputpath = self._sources[ident].outputpath
                 return
 
             reportdir = self._settings.REPORT_HTML.parent
-            filesdir = self._settings.REPORT_FILES_DIR
+            filesdir = self._settings.REPORT_SOURCES_DIR
             reldir = filesdir.relative_to(reportdir)
             data.outputpath = str(reldir / (str(index) + ".html"))
-            self._files[ident] = data
+            self._sources[ident] = data
             return
 
         if section not in self._sections:
@@ -824,7 +828,8 @@ class Report:
         """
         self.clean()
         remove_if_exists(self._settings.REPORT_HTML.parent)
-        remove_if_exists(self._settings.REPORT_FILES_DIR)
+        remove_if_exists(self._settings.REPORT_SOURCES_DIR)
+        remove_if_exists(self._settings.REPORT_ATTACHMENTS_DIR)
 
     def clean(self):
         """
@@ -1353,7 +1358,7 @@ class StyleCheck:
         self.clean()
         settings = self._settings
         self.checkfile = str(settings.STYLE_REPORT_JSON)
-        mkdirs_if_not_exists(settings.REPORT_DIR)
+        settings.REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
         Environment().uv("format", "-q", settings.SRC_DIR, settings.TEST_DIR)
         self._passed = Environment().uv(
@@ -1448,7 +1453,7 @@ class TypeCheck:
 
         self.clean()
 
-        mkdirs_if_not_exists(self._settings.REPORT_DIR)
+        self._settings.REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
         self._passed = Environment().uvx(
             "mypy",
@@ -1589,7 +1594,7 @@ class SecurityCheck:
         """
         # Bandit does not seem to be able to create a directory, if it does not exist
         # already. Therefore, create one if necessary.
-        mkdirs_if_not_exists(self._settings.TMP_DIR)
+        self._settings.TMP_DIR.mkdir(parents=True, exist_ok=True)
 
         # *****************************
         # ** CHECK FOR INSECURE CODE **
@@ -1705,9 +1710,11 @@ class Test:
             return
 
         self.clean()
+        self._settings.TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-        self.coveragefile = str(self._settings.TEST_COVERAGE_JSON)
-        mkdirs_if_not_exists(self._settings.TMP_DIR)
+        self.coveragefile = self._settings.TEST_COVERAGE_JSON
+        self.covreport = self._settings.TMP_DIR /self._settings.TEST_COVERAGE_XML.name
+        
         cwd = Path().cwd()
         srcdir_abs = self._settings.SRC_DIR.absolute()
         srcdir = srcdir_abs.relative_to(cwd)
@@ -1724,6 +1731,7 @@ class Test:
             f"{testdir}",
         ).success
         Environment().run("coverage", "json", "--pretty-print", "-o", self.coveragefile)
+        Environment().run("coverage", "xml", "-o", self.covreport)
         return self._passed
 
     def report(self, report: Report):
@@ -1737,12 +1745,14 @@ class Test:
             print(f"Skipping test report.")
             return
 
-        if not file_has_content(self.coveragefile):
-            print(self.coveragefile, "has not content")
+        if not (has_content(self.coveragefile) and has_content(self.covreport)):
+            print(f"{self.coveragefile} or {self.covreport} have no content.")
             List = Report.List()
             List.add("Coverage analysis failed", "")
             report.add(self._settings.REPORT_SECTION_NAME_TEST, List)
             return
+        
+        report.attach(self.covreport)        
 
         with open(self.coveragefile, "r") as f:
             data = json.load(f)
@@ -1974,7 +1984,7 @@ class DocInspector:
         it is overwritten.
         """
 
-        mkdirs_if_not_exists(Path(self._settings.TMP_DIR))
+        self._settings.TMP_DIR.mkdir(parents=True, exist_ok=True)
 
         with open(self._settings.DOCUMENTATION_COVERAGE_FILE, "w") as f:
             data = {
