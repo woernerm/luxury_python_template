@@ -252,16 +252,6 @@ class Environment:
             args: The command to run.
         """
         return self.uv("run", "-q", *args)
-    
-    def uvx(self, *args, deps: Optional[List[str]] = None, from_: Optional[str] = None) -> Result:
-        """ Run a command line tool without installing it. 
-        
-        Args:
-            args: The command to run.
-        """
-        with_deps = list(chain.from_iterable(["--with", d] for d in deps or []))
-        from_package = ["--from", from_] if from_ else []
-        return self.cmd("uvx", *from_package, *with_deps, *args)
 
     def build(self, outdir: Union[Path, str]) -> Result:
         """Run build command, preferably using uv. Otherwise, use the original build."""
@@ -1263,7 +1253,7 @@ class Documentation:
         self.remove()
 
         # Generate new documentation
-        step1result = Environment().uvx(
+        step1result = Environment().run(
             "sphinx-apidoc",
             "-e",
             "-q",
@@ -1274,22 +1264,15 @@ class Documentation:
             "-o",
             str(self._settings.DOCUMENTATION_SOURCE_DIR),
             str(self._settings.SRC_DIR),
-            from_="sphinx"
         ).success
 
-        step2result = Environment().uvx(
+        step2result = Environment().run(
             "sphinx-build",
             "-q",
             "-b",
             "html",
             str(self._settings.DOCUMENTATION_ROOT_DIR),
             str(self._settings.DOCUMENTATION_HTML_DIR),
-            deps=[
-                "pydata_sphinx_theme", 
-                "myst_parser[linkify]", 
-                "sphinxcontrib-mermaid"
-            ],
-            from_="sphinx"
         ).success
         self._settings.DOCUMENTATION_HTML_DIR.mkdir(parents=True, exist_ok=True)
         (self._settings.DOCUMENTATION_HTML_DIR / ".nojekyll").touch()
@@ -1455,7 +1438,7 @@ class TypeCheck:
 
         self._settings.REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-        self._passed = Environment().uvx(
+        self._passed = Environment().run(
             "mypy",
             "--install-types",
             "--show-error-codes",
@@ -1603,7 +1586,7 @@ class SecurityCheck:
         # Create json for parsing by package.py.
         self.banditfilename = str(self._settings.SECURITY_BANDIT_JSON)
 
-        return Environment().uvx(
+        return Environment().run(
             "bandit",
             "--quiet",
             "-r",
@@ -1774,7 +1757,7 @@ class Test:
                 nmissing = content[self.KEY_SUMMARY][self.KEY_NUM_MISSING]
                 nexcluded = content[self.KEY_SUMMARY][self.KEY_NUM_EXCLUDED]
                 coverage = (
-                    str(round(content[self.KEY_SUMMARY][self.KEY_COVERAGE], 2))
+                    str(math.floor(content[self.KEY_SUMMARY][self.KEY_COVERAGE]))
                     + "\u202f%"
                 )
                 table.add(

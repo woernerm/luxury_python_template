@@ -17,7 +17,7 @@
         <nav>
             <ul>
                 {%- for heading in report %}
-                <li><a href="#{{ heading.replace(' ', '') }}">{{ heading }} ({{ summary[heading]["value"]|round|int }}{{
+                <li><a href="#{{ heading.replace(' ', '') }}">{{ heading }} ({{ summary[heading]["value"]|int }}{{
                         summary[heading]["unit"] }})</a></li>
                 {%- endfor %}
             </ul>
@@ -30,7 +30,7 @@
                 <nav>
                     <hgroup>
                         <h2 id="{{ heading.replace(' ', '') }}">{{ heading }}</h2>
-                        <h3>{{ summary[heading]["name"] }}: {{ summary[heading]["value"]|round|int }}{{
+                        <h3>{{ summary[heading]["name"] }}: {{ summary[heading]["value"]|int }}{{
                             summary[heading]["unit"]
                             }}</h3>
                     </hgroup>
